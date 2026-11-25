@@ -78,14 +78,13 @@ jobs:
           choco install innosetup --yes --no-progress
           $safeTag = $env:RELEASE_TAG -replace '[^A-Za-z0-9._-]', '-'
           $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
-          $buildDir = Join-Path $env:GITHUB_WORKSPACE "build\release\NoWave_artefacts\Release"
-          $license = Join-Path $env:GITHUB_WORKSPACE "build\release\_deps\ufbx-src\LICENSE"
           $installer = Join-Path $env:GITHUB_WORKSPACE "NoWave-$safeTag-Windows-Installer.exe"
+          $env:NOWAVE_RELEASE_TAG = $safeTag
 
           if (!(Test-Path $iscc)) {
             throw "Inno Setup compiler was not found: $iscc"
           }
-          & $iscc "/O$env:GITHUB_WORKSPACE" "/FNoWave-$safeTag-Windows-Installer" "/DAppVersion=`"$safeTag`"" "/DBuildDir=`"$buildDir`"" "/DLicenseFile=`"$license`"" "packaging\windows\NoWave.iss"
+          & $iscc "/O$env:GITHUB_WORKSPACE" "/FNoWave-$safeTag-Windows-Installer" "packaging\windows\NoWave.iss"
           if ($LASTEXITCODE -ne 0) {
             throw "Inno Setup failed with exit code $LASTEXITCODE"
           }

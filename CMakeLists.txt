@@ -77,6 +77,10 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(JUCE tinyobjloader glm ufbx)
 
+set_target_properties(tinyobjloader PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+)
+
 add_library(ufbx STATIC "${ufbx_SOURCE_DIR}/ufbx.c")
 target_include_directories(ufbx PUBLIC "${ufbx_SOURCE_DIR}")
 set_target_properties(ufbx PROPERTIES

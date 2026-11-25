@@ -1,13 +1,10 @@
 #define AppName "NoWave"
+#define AppVersion GetEnv("NOWAVE_RELEASE_TAG")
+#define BuildDir AddBackslash(SourcePath) + "..\..\build\release\NoWave_artefacts\Release"
+#define LicenseFile AddBackslash(SourcePath) + "..\..\build\release\_deps\ufbx-src\LICENSE"
 
-#ifndef AppVersion
-  #error AppVersion must be supplied by the release workflow
-#endif
-#ifndef BuildDir
-  #error BuildDir must be supplied by the release workflow
-#endif
-#ifndef LicenseFile
-  #error LicenseFile must be supplied by the release workflow
+#if AppVersion == ""
+  #error NOWAVE_RELEASE_TAG environment variable must be set
 #endif
 
 [Setup]
