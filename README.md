@@ -1,5 +1,5 @@
 # NoWave
-
+[![Build and publish release](https://github.com/No-Cheats-Studio/NoWave/actions/workflows/release.yml/badge.svg)](https://github.com/No-Cheats-Studio/NoWave/actions/workflows/release.yml)
 C++20 VST3 & Standalone Audio Plugin built with JUCE and CMake.
 
 NoWave is a product of **no-cheats.de**. It is an audio effect for exploring and
