@@ -41,7 +41,14 @@ constexpr uint32_t error = 0xfff87171;
 
 constexpr uint32_t roomWireframe = 0xff7c9ad6;
 constexpr uint32_t rayPath = receiver;
+
+// Sound level colour scale, quietest to loudest (shared by the 3D cloud and its legend).
+constexpr uint32_t levelRamp[5] { 0xff3b2a8f, 0xff1e88e5, 0xff22c55e, 0xfffacc15, 0xffef4444 };
 } // namespace argb
+
+// Level range mapped onto the colour scale (dB, amplitude based).
+constexpr float kLevelFloorDb = -60.0f;
+constexpr float kLevelCeilingDb = 0.0f;
 
 inline const juce::Colour background { argb::background };
 inline const juce::Colour panel { argb::panel };
@@ -76,5 +83,16 @@ constexpr glm::vec3 rgb(uint32_t colour) noexcept
     return { static_cast<float>((colour >> 16) & 0xff) / 255.0f,
              static_cast<float>((colour >> 8) & 0xff) / 255.0f,
              static_cast<float>(colour & 0xff) / 255.0f };
+}
+
+// Colour on the level ramp for t in 0..1 (0 = quietest).
+inline juce::Colour levelColour(float t) noexcept
+{
+    constexpr int stops = 5;
+    const float scaled = juce::jlimit(0.0f, 1.0f, t) * static_cast<float>(stops - 1);
+    const int index = juce::jmin(static_cast<int>(scaled), stops - 2);
+    return juce::Colour(argb::levelRamp[index])
+        .interpolatedWith(juce::Colour(argb::levelRamp[index + 1]),
+                          scaled - static_cast<float>(index));
 }
 } // namespace nowave::palette

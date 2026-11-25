@@ -33,7 +33,11 @@ int rayBouncesValue(const ParameterPointers& parameters) noexcept
 
 bool rayPathsEnabled(const ParameterPointers& parameters) noexcept
 {
-    return parameterValue(parameters.showRayPaths, 0.0f) >= 0.5f;
+    // Segments are only captured on the GPU while the cloud or the ray view is active.
+    return parameterValue(parameters.showRayPaths, 0.0f) >= 0.5f ||
+           static_cast<int>(std::round(parameterValue(
+               parameters.soundView, static_cast<float>(SoundViewMode::Cloud)))) !=
+           static_cast<int>(SoundViewMode::Off);
 }
 
 int choiceValue(const std::atomic<float>* parameter, int fallback, int maximum) noexcept

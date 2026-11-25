@@ -91,7 +91,7 @@ Das Projekt ist ein Proof of Concept. Es gibt **keine automatisierten Tests** un
 - Positionen ±25 m, Winkel Yaw ±180° / Pitch ±89°, EQ ±18 dB, Mitten-Frequenz 200–5000 Hz.
 - Input/Output ±120 dB, Dry/Wet 0–100 %, Ray Density 128–8192, Max Bounces 0–16.
 - Auswahl-Parameter: `output_type` (Vocal/SpeakerBox/PA), `input_type` (Microphone/Ears/PA),
-  Mikrofon-Richtcharakteristik (4 Muster) sowie `show_ray_paths`.
+  Mikrofon-Richtcharakteristik (4 Muster), `show_ray_paths` (Strahlen-Debugansicht) sowie `sound_view` (Wolke aus/an), `sound_view_band` und `sound_view_arrival` (Filter).
 - **Neuer Parameter?** Muss an drei Stellen gepflegt werden: `ParamIDs` in `ParameterLayout.h`,
   `ParameterPointers` (+ `bind`), und bei Raum-spezifischen Parametern die Liste
   `kRoomAudioParameterIds` in `PluginProcessor.cpp`.
@@ -116,7 +116,7 @@ Das Projekt ist ein Proof of Concept. Es gibt **keine automatisierten Tests** un
 - [shaders/raytracer.comp](src/raytracing/shaders/raytracer.comp): GLSL 450, Local Size 64. Eine Invocation je Ray und Quelle;
   Bounce-Schleife bis `limits.w`; Materialabsorption je Band, Streuung über `absorption.w`.
 - [BVHBuilder.cpp](src/raytracing/BVHBuilder.cpp): Median-Split, ein Dreieck pro Blatt.
-- [BVHNode.h](src/raytracing/BVHNode.h): **GPU-Layouts** (`GPUBVHNode` 48 B, `GPUTriangle` 80 B, `GPUMaterial` 16 B, `RayTap` 32 B, `RaySegment` 32 B).
+- [BVHNode.h](src/raytracing/BVHNode.h): **GPU-Layouts** (`GPUBVHNode` 48 B, `GPUTriangle` 80 B, `GPUMaterial` 16 B, `RayTap` 32 B, `RaySegment` 48 B).
 
 > ⚠️ **Kopplung:** Die C++-Structs in `BVHNode.h` und `AcousticSimulation.h` müssen exakt zum
 > `std430`-Layout der Shader-Blöcke in `raytracer.comp` passen. Änderungen immer in beiden Dateien,
@@ -132,8 +132,9 @@ Das Projekt ist ein Proof of Concept. Es gibt **keine automatisierten Tests** un
 
 **UI** ([src/ui/](src/ui/))
 - [StartScreenComponent.cpp](src/ui/StartScreenComponent.cpp): Datei-Drop, Dateidialog, Preset-Buttons, Statusmeldung.
-- [Viewport3DComponent.cpp](src/ui/Viewport3DComponent.cpp): OpenGL-Renderer (Raum-, Marker-, Richtungs- und Strahlen-Geometrie), Kamera mit WASD/Leertaste/Strg.
+- [Viewport3DComponent.cpp](src/ui/Viewport3DComponent.cpp): OpenGL-Renderer (Raum-, Marker-, Richtungs-, Strahlen- und Schallwolken-Geometrie; Wolke = Energiedichte-Voxelfeld mit Flugrichtungs-Pfeilen), Kamera mit WASD/Leertaste/Strg.
   Lädt Strahlen über `rayPathProvider` (Snapshot-Polling per Timer).
+- [LevelLegendComponent.cpp](src/ui/LevelLegendComponent.cpp): dB-Farbskala der Schallwolke (Farbrampe in `Palette.h`).
 - [BottomControlBar.cpp](src/ui/BottomControlBar.cpp): Regler für Quelle und Empfänger, Input/Output-Typen, Raytracing-Optionen.
   Bindet per `SliderAttachment` an das APVTS.
 

@@ -16,6 +16,31 @@ inline constexpr int kMaxRaySegments =
     kMaxRayCount * 2 * (kMaxRayBounces + 2 * (kMaxRayBounces + 1));
 inline constexpr int kMaxRayTaps = 1048576;
 
+// Sound visualisation in the 3D view. Rays is the debug view.
+enum class SoundViewMode : int32_t
+{
+    Off = 0,
+    Cloud
+};
+
+enum class SoundViewBand : int32_t
+{
+    Broadband = 0,
+    Low,
+    Mid,
+    High
+};
+
+// Arrival classes are derived from the reflection index of a segment.
+enum class ArrivalFilter : int32_t
+{
+    All = 0,
+    Direct,
+    Early,
+    Late
+};
+inline constexpr int kEarlyReflectionMax = 3;
+
 enum class SimulationStatus : int32_t
 {
     NoGpu = 0,

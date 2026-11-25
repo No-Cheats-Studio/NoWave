@@ -1,9 +1,9 @@
-# NoWave – To-Do (from PoC to product)
+﻿# NoWave â€“ To-Do (from PoC to product)
 
 Goal: NoWave should become a professionally designed, cleanly operable product.
 The order corresponds to priority. The current state is described in [roadmap.md](roadmap.md).
 
-Legend: `[ ]` open · `[~]` in progress · `[x]` done · `[!]` blocked
+Legend: `[ ]` open Â· `[~]` in progress Â· `[x]` done Â· `[!]` blocked
 
 ---
 
@@ -23,20 +23,20 @@ Goal: Rooms and surfaces look and sound realistic and high quality.
 Goal: Not individual rays, but a cloud that shows **where** the sound is **how loud**
 and **from which direction** it arrives at the listener.
 
-- [!] Take energy per segment from the GPU calculation (blocked by section 4)
-- [ ] Cloud rendering: density and brightness correspond to the sound energy at the location
-- [ ] Color scale for the level in dB with legend
-- [ ] Direction display at the listener (e.g. heatmap or direction arc around the receiver)
-- [ ] Filter by arrival time (direct sound, early reflections, reverb tail)
-- [ ] Rendering stays smooth at maximum Ray Density
-- [ ] "Show Rays" remains available as a debug view
+- [x] Take energy per segment from the GPU calculation (`RaySegment`: broadband, Low/Mid/High, reflection index)
+- [x] Cloud rendering as an energy-density voxel field (segment power x path length per voxel, 0 dB = direct sound at 1 m): density and brightness correspond to the sound energy at the location
+- [x] Color scale for the level in dB with legend (`LevelLegendComponent`, -60..0 dB, shared `levelRamp` in `Palette.h`)
+- [x] Direction display: arrows per voxel show the direction the sound travels (power-weighted), plus a heatmap sphere (24x12 bins) around each receiver
+- [x] Filter by arrival time (Sound View "Arrival": All / Direct / Early <= 3 reflections / Late) (direct sound, early reflections, reverb tail)
+- [x] Rendering stays smooth at maximum Ray Density (voxel grid of max 56 cells along the longest axis, rebuilt only on change; not yet measured on hardware)
+- [x] "Show Rays" remains available as a debug view (independent "Show rays" toggle, can be combined with the cloud)
 
 ## 3. Operation, Menus & Accessibility
 
 Goal: Every function is understandable without a manual and easy to reach.
 
 - [x] All controls with unit in the label and a short tooltip explanation
-- [x] Name dropdown entries clearly (e.g. "Vocal" → "Vocal (single source)")
+- [x] Name dropdown entries clearly (e.g. "Vocal" â†’ "Vocal (single source)")
 - [x] Group the control panel clearly: source, receiver, room, output, raytracing
 - [x] Keyboard operation and logical tab order
 - [x] Minimum size for click targets and WCAG AA contrast
@@ -52,7 +52,7 @@ Goal: Every sound is calculated fully physically on the GPU. There is no CPU rep
 - [x] Clear status instead of silent fallback (without GPU or scene: no IR, signal stays dry, status retrievable)
 - [~] Verify full physics in the compute shader: runtime, 1/r attenuation, absorption per band and reflection, scattering, source and receiver directivity, receiver hits
 - [x] Export energy and reflection index per segment for visualization
-- [ ] Automated check of C++↔GLSL layouts (sizes and offsets)
+- [ ] Automated check of C++â†”GLSL layouts (sizes and offsets)
 - [ ] Validation against reference values (reverberation time per Sabine/Eyring)
 
 ## 5. Product Maturity & Quality
@@ -78,3 +78,4 @@ Goal: Every sound is calculated fully physically on the GPU. There is no CPU rep
 | Date | Change |
 |---|---|
 | 2026-11-25 | Initial version of the product to-dos |
+| 2026-11-25 | Section 2: sound cloud, dB legend, direction heatmap, arrival filter; `show_ray_paths` replaced by `sound_view`, `sound_view_band`, `sound_view_arrival` |

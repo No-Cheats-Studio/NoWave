@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -115,6 +115,13 @@ private:
     juce::ComboBox outputTypeBox, inputTypeBox;
     juce::ComboBox microphonePatternBox, leftPatternBox, rightPatternBox;
     juce::ToggleButton showRayPathsButton;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> showRayPathsAtt;
+    juce::Label soundViewGroupLabel;
+    juce::Label soundViewLabel, soundViewBandLabel, soundViewArrivalLabel;
+    juce::ComboBox soundViewBox, soundViewBandBox, soundViewArrivalBox;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> soundViewAtt;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> soundViewBandAtt;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> soundViewArrivalAtt;
     juce::Slider rayDensitySlider, rayBouncesSlider;
     juce::Label rayDensityLabel, rayBouncesLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> outputTypeAtt;
@@ -122,7 +129,6 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> microphonePatternAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> leftPatternAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> rightPatternAtt;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> showRayPathsAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> rayDensityAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> rayBouncesAtt;
 

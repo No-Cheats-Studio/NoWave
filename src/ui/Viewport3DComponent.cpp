@@ -1,4 +1,4 @@
-#include "ui/Viewport3DComponent.h"
+﻿#include "ui/Viewport3DComponent.h"
 #include "ui/Palette.h"
 
 #include <algorithm>
@@ -25,6 +25,8 @@ layout (location = 3) in float aRayEnergy;
 
 uniform mat4 uMvp;
 uniform mat4 uModel;
+uniform int uRayMode;
+uniform float uPointScale;
 
 out vec3 vNormal;
 out vec3 vWorldPos;
@@ -39,6 +41,8 @@ void main()
     vSurfaceType = int(aSurfaceType + 0.5);
     vRayEnergy = aRayEnergy;
     gl_Position = uMvp * vec4(aPosition, 1.0);
+    if (uRayMode == 2 || uRayMode == 4)
+        gl_PointSize = clamp(uPointScale / gl_Position.w, 2.0, 120.0);
 }
 )";
 
@@ -54,8 +58,16 @@ uniform float uAlpha;
 uniform int uUseLighting;
 uniform int uUseMaterialTexture;
 uniform int uRayMode;
+uniform vec3 uRamp[5];
 
 out vec4 FragColor;
+
+vec3 levelRamp(float t)
+{
+    float s = clamp(t, 0.0, 1.0) * 4.0;
+    int i = min(int(s), 3);
+    return mix(uRamp[i], uRamp[i + 1], s - float(i));
+}
 
 float hash21(vec2 p)
 {
@@ -217,6 +229,30 @@ vec3 proceduralMaterial(int type, vec2 uv)
 
 void main()
 {
+    if (uRayMode == 2)
+    {
+        // Soft additive sprite: density comes from overlap, brightness from the level.
+        vec2 d = gl_PointCoord * 2.0 - 1.0;
+        float r2 = dot(d, d);
+        if (r2 > 1.0)
+            discard;
+        FragColor = vec4(levelRamp(vRayEnergy),
+                         uAlpha * exp(-r2 * 2.5) * (0.1 + 0.9 * vRayEnergy));
+        return;
+    }
+    if (uRayMode == 4)
+    {
+        vec2 d = gl_PointCoord * 2.0 - 1.0;
+        if (dot(d, d) > 1.0)
+            discard;
+        FragColor = vec4(levelRamp(vRayEnergy), uAlpha);
+        return;
+    }
+    if (uRayMode == 3)
+    {
+        FragColor = vec4(levelRamp(vRayEnergy), uAlpha);
+        return;
+    }
     if (uRayMode != 0)
     {
         FragColor = vec4(uColor, uAlpha * clamp(vRayEnergy, 0.0, 1.0));
@@ -260,8 +296,10 @@ Viewport3DComponent::Viewport3DComponent(const ParameterPointers& paramPointers,
                                          RayPathProvider pathProvider,
                                          std::function<void()> onChangeRoomRequested)
     : params(paramPointers),
-      rayPathProvider(std::move(pathProvider))
+      rayPathProvider(std::move(pathProvider)),
+      levelLegend(paramPointers.soundView)
 {
+    addChildComponent(levelLegend);
     roomNameLabel.setText("No Room Loaded", juce::dontSendNotification);
     roomNameLabel.setFont(juce::FontOptions(14.0f, juce::Font::bold));
     roomNameLabel.setColour(juce::Label::textColourId, palette::text);
@@ -326,6 +364,8 @@ void Viewport3DComponent::resized()
     topBar.removeFromRight(8);
     roomNameLabel.setBounds(topBar.removeFromLeft(280));
     cameraHintLabel.setBounds(getLocalBounds().reduced(12).removeFromBottom(24).removeFromLeft(400));
+    levelLegend.setBounds(getLocalBounds().reduced(12).removeFromRight(92).withTrimmedTop(40)
+                              .withHeight(juce::jmin(220, getHeight() - 100)));
 }
 
 void Viewport3DComponent::mouseDown(const juce::MouseEvent& event)
@@ -417,6 +457,18 @@ void Viewport3DComponent::newOpenGLContextCreated()
     uUseMaterialTextureLoc =
         glGetUniformLocation(shader->getProgramID(), "uUseMaterialTexture");
     uRayModeLoc = glGetUniformLocation(shader->getProgramID(), "uRayMode");
+    uPointScaleLoc = glGetUniformLocation(shader->getProgramID(), "uPointScale");
+
+    std::array<float, 15> ramp {};
+    for (size_t i = 0; i < 5; ++i)
+    {
+        const auto colour = palette::rgb(palette::argb::levelRamp[i]);
+        ramp[i * 3] = colour.r;
+        ramp[i * 3 + 1] = colour.g;
+        ramp[i * 3 + 2] = colour.b;
+    }
+    shader->use();
+    glUniform3fv(glGetUniformLocation(shader->getProgramID(), "uRamp"), 5, ramp.data());
 
     createMarkerGeometry();
     createDirectionGeometry();
@@ -592,6 +644,8 @@ void Viewport3DComponent::uploadPendingMeshIfNeeded()
     if (meshCopy == nullptr || !meshCopy->isValid())
         return;
 
+    roomBoundsMin = meshCopy->bounds.min;
+    roomBoundsMax = meshCopy->bounds.max;
     const glm::vec3 center = meshCopy->bounds.center();
     cameraX.store(center.x);
     cameraY.store(center.y);
@@ -639,39 +693,288 @@ void Viewport3DComponent::uploadPendingMeshIfNeeded()
     glBindVertexArray(0);
 }
 
+std::vector<glm::vec3> Viewport3DComponent::collectReceiverPositions() const
+{
+    const int inputType = params.inputType != nullptr
+                              ? static_cast<int>(std::round(params.inputType->load()))
+                              : static_cast<int>(InputType::Microphone);
+    const glm::vec3 center(params.dstX != nullptr ? params.dstX->load() : 2.0f,
+                           params.dstY != nullptr ? params.dstY->load() : 1.5f,
+                           params.dstZ != nullptr ? params.dstZ->load() : 0.0f);
+    const float yaw = params.dstYawDeg != nullptr ? params.dstYawDeg->load() : -90.0f;
+    const glm::vec3 right = rightFromYaw(yaw);
+
+    std::vector<glm::vec3> positions;
+    const int count = inputType == static_cast<int>(InputType::Microphone) ? 1 : 2;
+    for (int receiver = 0; receiver < count; ++receiver)
+    {
+        const float side = receiver == 0 ? -1.0f : 1.0f;
+        if (inputType == static_cast<int>(InputType::PA))
+        {
+            positions.emplace_back(paValue(params.paDstX, receiver, 2.0f),
+                                   paValue(params.paDstY, receiver, 1.5f),
+                                   paValue(params.paDstZ, receiver, 0.0f));
+            continue;
+        }
+        const float offset = inputType == static_cast<int>(InputType::Ears) ? 0.09f : 0.0f;
+        positions.push_back(center + right * (side * offset));
+    }
+    return positions;
+}
+
 void Viewport3DComponent::uploadRayPathsIfNeeded()
 {
     using namespace juce::gl;
 
+    const auto choice = [](const std::atomic<float>* p, int fallback)
+    {
+        return p != nullptr ? static_cast<int>(std::round(p->load(std::memory_order_relaxed)))
+                            : fallback;
+    };
+    const bool cloudOn = choice(params.soundView, static_cast<int>(SoundViewMode::Cloud)) !=
+                         static_cast<int>(SoundViewMode::Off);
+    const bool raysOn = params.showRayPaths != nullptr &&
+                        params.showRayPaths->load(std::memory_order_relaxed) >= 0.5f;
+    const auto band = static_cast<SoundViewBand>(
+        choice(params.soundViewBand, static_cast<int>(SoundViewBand::Broadband)));
+    const auto arrival = static_cast<ArrivalFilter>(
+        choice(params.soundViewArrival, static_cast<int>(ArrivalFilter::All)));
+    const auto receivers = collectReceiverPositions();
+
     const auto newSnapshot = rayPathProvider ? rayPathProvider() : nullptr;
-    if (newSnapshot == rayPathSnapshot)
+    if (newSnapshot == rayPathSnapshot && cloudOn == uploadedCloud && raysOn == uploadedRays &&
+        band == uploadedBand && arrival == uploadedArrival && receivers == uploadedReceivers)
         return;
 
     rayPathSnapshot = newSnapshot;
+    uploadedCloud = cloudOn;
+    uploadedRays = raysOn;
+    uploadedBand = band;
+    uploadedArrival = arrival;
+    uploadedReceivers = receivers;
     rayPathVertexCount = 0;
     rayPathFirst.fill(0);
     rayPathCounts.fill(0);
+    cloudPointFirst = cloudPointCount = 0;
+    arrowFirst = arrowCount = 0;
+    heatPointFirst = heatPointCount = 0;
+
     std::vector<GLVertex> vertices;
-    if (rayPathSnapshot != nullptr)
+    if (rayPathSnapshot != nullptr && (cloudOn || raysOn))
     {
-        std::array<std::vector<GLVertex>, 3> energyBins;
-        for (const auto& segment : *rayPathSnapshot)
+        // Primary segments (reflectionIndex >= 0) follow the ray path; helper segments
+        // (reflectionIndex < 0) end at a receiver and encode the reflection count as -1 - index.
+        const auto reflections = [](const RaySegment& s)
         {
-            const float energy = std::clamp(
-                (segment.start[3] + segment.end[3]) * 0.5f, 0.0f, 1.0f);
-            const size_t bin = energy < 0.15f ? 0u : (energy < 0.5f ? 1u : 2u);
-            energyBins[bin].push_back({ segment.start[0], segment.start[1], segment.start[2],
-                                        0.0f, 1.0f, 0.0f, 0.0f, energy });
-            energyBins[bin].push_back({ segment.end[0], segment.end[1], segment.end[2],
-                                        0.0f, 1.0f, 0.0f, 0.0f, energy });
+            return s.reflectionIndex >= 0 ? s.reflectionIndex : -1 - s.reflectionIndex;
+        };
+        const auto passesArrival = [arrival, &reflections](const RaySegment& s)
+        {
+            const int r = reflections(s);
+            switch (arrival)
+            {
+                case ArrivalFilter::Direct: return r == 0;
+                case ArrivalFilter::Early:  return r >= 1 && r <= kEarlyReflectionMax;
+                case ArrivalFilter::Late:   return r > kEarlyReflectionMax;
+                case ArrivalFilter::All:    break;
+            }
+            return true;
+        };
+        const auto power = [band](const RaySegment& s)
+        {
+            switch (band)
+            {
+                case SoundViewBand::Low:  return s.energyLow;
+                case SoundViewBand::Mid:  return s.energyMid;
+                case SoundViewBand::High: return s.energyHigh;
+                case SoundViewBand::Broadband: break;
+            }
+            return (s.energyLow + s.energyMid + s.energyHigh) / 3.0f;
+        };
+        const auto toT = [](float db)
+        {
+            return (db - palette::kLevelFloorDb) /
+                   (palette::kLevelCeilingDb - palette::kLevelFloorDb);
+        };
+        const auto vec = [](const float* p) { return glm::vec3(p[0], p[1], p[2]); };
+
+        if (raysOn)
+        {
+            std::array<std::vector<GLVertex>, 3> energyBins;
+            for (const auto& segment : *rayPathSnapshot)
+            {
+                if (!passesArrival(segment))
+                    continue;
+                const float energy = std::clamp(
+                    (segment.start[3] + segment.end[3]) * 0.5f, 0.0f, 1.0f);
+                const size_t bin = energy < 0.15f ? 0u : (energy < 0.5f ? 1u : 2u);
+                energyBins[bin].push_back({ segment.start[0], segment.start[1], segment.start[2],
+                                            0.0f, 1.0f, 0.0f, 0.0f, energy });
+                energyBins[bin].push_back({ segment.end[0], segment.end[1], segment.end[2],
+                                            0.0f, 1.0f, 0.0f, 0.0f, energy });
+            }
+            for (size_t bin = 0; bin < energyBins.size(); ++bin)
+            {
+                rayPathFirst[bin] = static_cast<GLint>(vertices.size());
+                rayPathCounts[bin] = static_cast<GLsizei>(energyBins[bin].size());
+                vertices.insert(vertices.end(), energyBins[bin].begin(), energyBins[bin].end());
+            }
         }
 
-        vertices.reserve(rayPathSnapshot->size() * 2);
-        for (size_t bin = 0; bin < energyBins.size(); ++bin)
+        if (cloudOn)
         {
-            rayPathFirst[bin] = static_cast<GLint>(vertices.size());
-            rayPathCounts[bin] = static_cast<GLsizei>(energyBins[bin].size());
-            vertices.insert(vertices.end(), energyBins[bin].begin(), energyBins[bin].end());
+            // Energy-density field: every ray segment deposits power * path length into the
+            // voxels it crosses. Level = 10 log10(4 pi * sum(P dL) / (V * rays)), which gives
+            // 0 dB for the direct sound at 1 m. The summed power-weighted direction is the
+            // direction the sound travels through the voxel.
+            const glm::vec3 lo = roomBoundsMin - glm::vec3(0.01f);
+            const glm::vec3 hi = roomBoundsMax + glm::vec3(0.01f);
+            const glm::vec3 extent = glm::max(hi - lo, glm::vec3(0.1f));
+            const float h = std::max(0.2f, std::max({ extent.x, extent.y, extent.z }) / 56.0f);
+            const glm::ivec3 dim = glm::max(glm::ivec3(glm::ceil(extent / h)), glm::ivec3(1));
+            const size_t cells = static_cast<size_t>(dim.x) * dim.y * dim.z;
+            std::vector<float> energy(cells, 0.0f);
+            std::vector<glm::vec3> flow(cells, glm::vec3(0.0f));
+
+            for (const auto& s : *rayPathSnapshot)
+            {
+                if (s.reflectionIndex < 0 || !passesArrival(s))
+                    continue;
+                const float p = power(s);
+                if (p <= 0.0f)
+                    continue;
+                const glm::vec3 a = vec(s.start);
+                const glm::vec3 b = vec(s.end);
+                const float length = glm::distance(a, b);
+                if (length < 1.0e-4f)
+                    continue;
+                const glm::vec3 dir = (b - a) / length;
+                const int steps = std::max(1, static_cast<int>(std::ceil(length / (h * 0.5f))));
+                const float stepLength = length / static_cast<float>(steps);
+                for (int i = 0; i < steps; ++i)
+                {
+                    const glm::vec3 pos = a + dir * ((static_cast<float>(i) + 0.5f) * stepLength);
+                    const glm::ivec3 v = glm::ivec3(glm::floor((pos - lo) / h));
+                    if (v.x < 0 || v.y < 0 || v.z < 0 || v.x >= dim.x || v.y >= dim.y || v.z >= dim.z)
+                        continue;
+                    const size_t index = (static_cast<size_t>(v.z) * dim.y + v.y) * dim.x + v.x;
+                    energy[index] += p * stepLength;
+                    flow[index] += dir * (p * stepLength);
+                }
+            }
+
+            // Rays are counted per source; the sources add up in the field.
+            const float rayCount = std::max(1.0f, params.rayDensity != nullptr
+                                                      ? params.rayDensity->load()
+                                                      : static_cast<float>(kDefaultRayCount));
+            const float scaleFactor = 4.0f * juce::MathConstants<float>::pi /
+                                      (h * h * h * rayCount);
+
+            std::vector<GLVertex> sprites, arrows;
+            constexpr float minT = 0.02f;
+            const auto cellCentre = [&](int x, int y, int z)
+            {
+                return lo + (glm::vec3(static_cast<float>(x), static_cast<float>(y),
+                                       static_cast<float>(z)) + 0.5f) * h;
+            };
+            for (int z = 0; z < dim.z; ++z)
+            {
+                for (int y = 0; y < dim.y; ++y)
+                {
+                    for (int x = 0; x < dim.x; ++x)
+                    {
+                        const size_t index = (static_cast<size_t>(z) * dim.y + y) * dim.x + x;
+                        if (energy[index] <= 0.0f)
+                            continue;
+                        const float t = std::clamp(
+                            toT(10.0f * std::log10(energy[index] * scaleFactor)), 0.0f, 1.0f);
+                        if (t < minT)
+                            continue;
+                        const glm::vec3 c = cellCentre(x, y, z);
+                        sprites.push_back({ c.x, c.y, c.z, 0.0f, 1.0f, 0.0f, 0.0f, t });
+
+                        // Arrow: direction of travel; length shows how directional the field is.
+                        const float flowLength = glm::length(flow[index]);
+                        const float coherence = flowLength / (energy[index] * 1.0f);
+                        if (flowLength < 1.0e-9f || coherence < 0.15f)
+                            continue;
+                        const glm::vec3 d = flow[index] / flowLength;
+                        const glm::vec3 tip = c + d * (h * 0.5f * (0.3f + 0.7f * coherence));
+                        const glm::vec3 tail = c - d * (h * 0.5f * (0.3f + 0.7f * coherence));
+                        const glm::vec3 side = glm::normalize(
+                            glm::cross(d, std::abs(d.y) < 0.9f ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0)));
+                        const glm::vec3 headBase = tip - d * (h * 0.22f);
+                        const glm::vec3 wing = side * (h * 0.12f);
+                        const auto line = [&](const glm::vec3& p0, const glm::vec3& p1)
+                        {
+                            arrows.push_back({ p0.x, p0.y, p0.z, 0.0f, 1.0f, 0.0f, 0.0f, t });
+                            arrows.push_back({ p1.x, p1.y, p1.z, 0.0f, 1.0f, 0.0f, 0.0f, t });
+                        };
+                        line(tail, tip);
+                        line(tip, headBase + wing);
+                        line(tip, headBase - wing);
+                    }
+                }
+            }
+            cloudPointFirst = static_cast<GLint>(vertices.size());
+            cloudPointCount = static_cast<GLsizei>(sprites.size());
+            vertices.insert(vertices.end(), sprites.begin(), sprites.end());
+            arrowFirst = static_cast<GLint>(vertices.size());
+            arrowCount = static_cast<GLsizei>(arrows.size());
+            vertices.insert(vertices.end(), arrows.begin(), arrows.end());
+            cloudCellSize = h;
+
+            // Direction display at the listener: arrival level per direction on a small sphere.
+            constexpr int azimuthBins = 24;
+            constexpr int elevationBins = 12;
+            constexpr float sphereRadius = 0.6f;
+            heatPointFirst = static_cast<GLint>(vertices.size());
+            for (const auto& receiver : receivers)
+            {
+                std::array<double, azimuthBins * elevationBins> bins {};
+                for (const auto& s : *rayPathSnapshot)
+                {
+                    if (s.reflectionIndex >= 0 || !passesArrival(s) ||
+                        glm::distance(vec(s.end), receiver) > 0.05f)
+                        continue;
+                    const glm::vec3 toSource = vec(s.start) - receiver;
+                    if (glm::length(toSource) < 1.0e-4f)
+                        continue;
+                    const glm::vec3 d = glm::normalize(toSource);
+                    const float azimuth = std::atan2(d.x, -d.z);
+                    const float elevation = std::asin(std::clamp(d.y, -1.0f, 1.0f));
+                    const int az = std::clamp(static_cast<int>(
+                        (azimuth / juce::MathConstants<float>::twoPi + 0.5f) * azimuthBins),
+                        0, azimuthBins - 1);
+                    const int el = std::clamp(static_cast<int>(
+                        (elevation / juce::MathConstants<float>::pi + 0.5f) * elevationBins),
+                        0, elevationBins - 1);
+                    bins[static_cast<size_t>(el * azimuthBins + az)] += power(s);
+                }
+                for (int el = 0; el < elevationBins; ++el)
+                {
+                    for (int az = 0; az < azimuthBins; ++az)
+                    {
+                        const double p = bins[static_cast<size_t>(el * azimuthBins + az)];
+                        if (p <= 0.0)
+                            continue;
+                        const float t = std::clamp(
+                            toT(10.0f * static_cast<float>(std::log10(p))), 0.0f, 1.0f);
+                        if (t < minT)
+                            continue;
+                        const float azimuth = ((static_cast<float>(az) + 0.5f) / azimuthBins - 0.5f) *
+                                              juce::MathConstants<float>::twoPi;
+                        const float elevation = ((static_cast<float>(el) + 0.5f) / elevationBins - 0.5f) *
+                                                juce::MathConstants<float>::pi;
+                        const glm::vec3 d(std::cos(elevation) * std::sin(azimuth),
+                                          std::sin(elevation),
+                                          -std::cos(elevation) * std::cos(azimuth));
+                        const glm::vec3 pos = receiver + d * sphereRadius;
+                        vertices.push_back({ pos.x, pos.y, pos.z, 0.0f, 1.0f, 0.0f, 0.0f, t });
+                    }
+                }
+            }
+            heatPointCount = static_cast<GLsizei>(vertices.size()) - heatPointFirst;
         }
     }
 
@@ -683,7 +986,6 @@ void Viewport3DComponent::uploadRayPathsIfNeeded()
                  GL_DYNAMIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
-
 void Viewport3DComponent::destroyBuffers()
 {
     using namespace juce::gl;
@@ -793,9 +1095,12 @@ void Viewport3DComponent::renderOpenGL()
         glBindVertexArray(0);
     }
 
-    const bool showRayPaths = params.showRayPaths != nullptr &&
-                              params.showRayPaths->load(std::memory_order_relaxed) >= 0.5f;
-    if (showRayPaths)
+    const bool showRays = params.showRayPaths != nullptr &&
+                          params.showRayPaths->load(std::memory_order_relaxed) >= 0.5f;
+    const bool showCloud = params.soundView != nullptr &&
+                           static_cast<int>(std::round(params.soundView->load(std::memory_order_relaxed))) !=
+                               static_cast<int>(SoundViewMode::Off);
+    if (showRays || showCloud)
     {
         uploadRayPathsIfNeeded();
         if (rayPathVao != 0 && rayPathVertexCount > 0)
@@ -803,31 +1108,67 @@ void Viewport3DComponent::renderOpenGL()
             const glm::mat4 identity(1.0f);
             glUniformMatrix4fv(uMvpLoc, 1, GL_FALSE, glm::value_ptr(vp));
             glUniformMatrix4fv(uModelLoc, 1, GL_FALSE, glm::value_ptr(identity));
-            const glm::vec3 rayColour = palette::rgb(palette::argb::rayPath);
-            glUniform1f(uAlphaLoc, 0.9f);
             glUniform1i(uUseLightingLoc, 0);
             glUniform1i(uUseMaterialTextureLoc, 0);
-            glUniform1i(uRayModeLoc, 1);
-            glDisable(GL_DEPTH_TEST);
             glBindVertexArray(rayPathVao);
-            const GLfloat widths[] { 1.0f, 1.5f, 2.0f };
+
             GLfloat supportedWidths[2] { 1.0f, 1.0f };
             glGetFloatv(GL_ALIASED_LINE_WIDTH_RANGE, supportedWidths);
-            for (size_t bin = 0; bin < rayPathCounts.size(); ++bin)
+
+            if (showCloud && cloudPointCount > 0)
             {
-                if (rayPathCounts[bin] == 0)
-                    continue;
-                glLineWidth(std::clamp(widths[bin],
-                                       supportedWidths[0],
-                                       supportedWidths[1]));
-                glDrawArrays(GL_LINES, rayPathFirst[bin], rayPathCounts[bin]);
+                // Soft additive sprites sized to one voxel: colour = level in dB.
+                const float focalPx = static_cast<float>(height) / (2.0f * std::tan(glm::radians(32.5f)));
+                glEnable(GL_PROGRAM_POINT_SIZE);
+                glUniform1i(uRayModeLoc, 2);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+                glDepthMask(GL_FALSE);
+                glUniform1f(uAlphaLoc, 0.35f);
+                glUniform1f(uPointScaleLoc, cloudCellSize * focalPx * 1.6f);
+                glDrawArrays(GL_POINTS, cloudPointFirst, cloudPointCount);
+                glDepthMask(GL_TRUE);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                glDisable(GL_PROGRAM_POINT_SIZE);
             }
-            glBindVertexArray(0);
+
+            glDisable(GL_DEPTH_TEST);
+            if (showRays)
+            {
+                glUniform1f(uAlphaLoc, 0.9f);
+                glUniform1i(uRayModeLoc, 1);
+                const GLfloat widths[] { 1.0f, 1.5f, 2.0f };
+                for (size_t bin = 0; bin < rayPathCounts.size(); ++bin)
+                {
+                    if (rayPathCounts[bin] == 0)
+                        continue;
+                    glLineWidth(std::clamp(widths[bin], supportedWidths[0], supportedWidths[1]));
+                    glDrawArrays(GL_LINES, rayPathFirst[bin], rayPathCounts[bin]);
+                }
+            }
+            if (showCloud)
+            {
+                glUniform1i(uRayModeLoc, 3);
+                glUniform1f(uAlphaLoc, 0.95f);
+                if (arrowCount > 0)
+                {
+                    glLineWidth(std::clamp(1.5f, supportedWidths[0], supportedWidths[1]));
+                    glDrawArrays(GL_LINES, arrowFirst, arrowCount);
+                }
+                if (heatPointCount > 0)
+                {
+                    glEnable(GL_PROGRAM_POINT_SIZE);
+                    glUniform1i(uRayModeLoc, 4);
+                    glUniform1f(uPointScaleLoc, 0.09f * static_cast<float>(height) /
+                                                    (2.0f * std::tan(glm::radians(32.5f))));
+                    glDrawArrays(GL_POINTS, heatPointFirst, heatPointCount);
+                    glDisable(GL_PROGRAM_POINT_SIZE);
+                }
+            }
             glLineWidth(1.0f);
             glEnable(GL_DEPTH_TEST);
+            glBindVertexArray(0);
         }
     }
-
     if (markerVao != 0 && markerVertexCount > 0)
     {
         glUniform1i(uRayModeLoc, 0);

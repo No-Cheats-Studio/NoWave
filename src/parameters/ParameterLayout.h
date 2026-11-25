@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "raytracing/AcousticSimulation.h"
 
@@ -15,6 +15,9 @@ inline constexpr const char* dryWet = "dry_wet";
 inline constexpr const char* rayDensity = "ray_density";
 inline constexpr const char* rayBounces = "ray_bounces";
 inline constexpr const char* showRayPaths = "show_ray_paths";
+inline constexpr const char* soundView = "sound_view";
+inline constexpr const char* soundViewBand = "sound_view_band";
+inline constexpr const char* soundViewArrival = "sound_view_arrival";
 inline constexpr const char* outputType = "output_type";
 inline constexpr const char* inputType = "input_type";
 inline constexpr const char* microphonePattern = "microphone_pattern";
@@ -80,6 +83,9 @@ struct ParameterPointers
     std::atomic<float>* rayDensity = nullptr;
     std::atomic<float>* rayBounces = nullptr;
     std::atomic<float>* showRayPaths = nullptr;
+    std::atomic<float>* soundView = nullptr;
+    std::atomic<float>* soundViewBand = nullptr;
+    std::atomic<float>* soundViewArrival = nullptr;
     std::atomic<float>* outputType = nullptr;
     std::atomic<float>* inputType = nullptr;
     std::atomic<float>* microphonePattern = nullptr;

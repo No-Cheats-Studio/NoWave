@@ -1,4 +1,4 @@
-#include "ParameterLayout.h"
+﻿#include "ParameterLayout.h"
 
 #include <memory>
 #include <vector>
@@ -85,6 +85,9 @@ void ParameterPointers::bind(juce::AudioProcessorValueTreeState& apvts) noexcept
     rayDensity = apvts.getRawParameterValue(ParamIDs::rayDensity);
     rayBounces = apvts.getRawParameterValue(ParamIDs::rayBounces);
     showRayPaths = apvts.getRawParameterValue(ParamIDs::showRayPaths);
+    soundView = apvts.getRawParameterValue(ParamIDs::soundView);
+    soundViewBand = apvts.getRawParameterValue(ParamIDs::soundViewBand);
+    soundViewArrival = apvts.getRawParameterValue(ParamIDs::soundViewArrival);
     outputType = apvts.getRawParameterValue(ParamIDs::outputType);
     inputType = apvts.getRawParameterValue(ParamIDs::inputType);
     microphonePattern = apvts.getRawParameterValue(ParamIDs::microphonePattern);
@@ -175,6 +178,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         juce::ParameterID{ParamIDs::showRayPaths, 1},
         "Visualize Ray Paths",
         false));
+    addChoiceParam(params, ParamIDs::soundView, "Sound View",
+                   { "Off", "Cloud" },
+                   static_cast<int>(SoundViewMode::Cloud));
+    addChoiceParam(params, ParamIDs::soundViewBand, "Sound View Band",
+                   { "Broadband", "Low", "Mid", "High" },
+                   static_cast<int>(SoundViewBand::Broadband));
+    addChoiceParam(params, ParamIDs::soundViewArrival, "Sound View Arrival",
+                   { "All", "Direct", "Early", "Late" },
+                   static_cast<int>(ArrivalFilter::All));
 
     addChoiceParam(params, ParamIDs::outputType, "Output Type",
                    { "Vocal", "Speaker Box", "PA" },
@@ -224,7 +236,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
                 ParamIDs::dstEqHighGain,
                 "Listener");
 
-    // PA channel placement. Defaults mirror the centred speaker/mic pair at ±0.15 m.
+    // PA channel placement. Defaults mirror the centred speaker/mic pair at Â±0.15 m.
     addPositionParams(params, ParamIDs::paSrcLeftX, ParamIDs::paSrcLeftY, ParamIDs::paSrcLeftZ,
                       "PA Source Left", -2.15f, 1.5f, 0.0f);
     addRotationParams(params, ParamIDs::paSrcLeftYaw, ParamIDs::paSrcLeftPitch,

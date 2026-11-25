@@ -226,7 +226,7 @@ float sourcePatternGain(int pattern, float forwardDot) {
 }
 
 void recordRaySegment(vec3 start, vec3 end, vec3 amplitude, float totalDistance,
-                      int reflectionIndex) {
+                      int reflectionIndex, bool primary) {
     if (simulation.physics.w <= 0.5)
         return;
 
@@ -235,13 +235,16 @@ void recordRaySegment(vec3 start, vec3 end, vec3 amplitude, float totalDistance,
         float spreading = 1.0 / max(totalDistance, 0.1);
         float broadband = clamp((amplitude.x + amplitude.y + amplitude.z) / 3.0 * spreading,
                                 0.0, 1.0);
-        vec3 bandEnergy = clamp(amplitude * amplitude * (spreading * spreading), 0.0, 1.0);
+        // Primaer: reine Leistung je Strahl (amp^2), die 1/r^2-Abnahme ergibt sich aus der
+        // Strahldichte. Hilfssegmente: Pegel am Empfaenger inkl. 1/r.
+        vec3 bandEnergy = primary ? amplitude * amplitude
+                                  : clamp(amplitude * amplitude * (spreading * spreading), 0.0, 1.0);
         rayPaths[pathIndex].startPosition = vec4(start, broadband);
         rayPaths[pathIndex].endPosition = vec4(end, broadband);
         rayPaths[pathIndex].energyLow = bandEnergy.x;
         rayPaths[pathIndex].energyMid = bandEnergy.y;
         rayPaths[pathIndex].energyHigh = bandEnergy.z;
-        rayPaths[pathIndex].reflectionIndex = reflectionIndex;
+        rayPaths[pathIndex].reflectionIndex = primary ? reflectionIndex : -1 - reflectionIndex;
     }
 }
 
@@ -267,9 +270,9 @@ void addTap(float totalDistance, vec3 amplitude, int sourceIndex, int receiverIn
     }
 }
 
-// Verbindet einen Punkt mit allen Empfängern (Next-Event-Estimation).
-// bounce == 0: Direktschall (Quellencharakteristik zum Empfänger).
-// bounce > 0: diffuser Anteil einer Reflexion, gewichtet mit Streuanteil * 2cos(θ).
+// Verbindet einen Punkt mit allen EmpfÃƒÆ’Ã‚Â¤ngern (Next-Event-Estimation).
+// bounce == 0: Direktschall (Quellencharakteristik zum EmpfÃƒÆ’Ã‚Â¤nger).
+// bounce > 0: diffuser Anteil einer Reflexion, gewichtet mit Streuanteil * 2cos(ÃƒÅ½Ã‚Â¸).
 void connectReceivers(vec3 point, float pathDistance, vec3 pathGain, int bounce,
                       int sourceIndex, vec3 surfaceNormal, float diffuseFraction,
                       float normalization) {
@@ -311,7 +314,7 @@ void connectReceivers(vec3 point, float pathDistance, vec3 pathGain, int bounce,
         float totalDistance = pathDistance + centerDistance;
         vec3 weighted = gain * receiverGain * normalization;
         addTap(totalDistance, weighted / max(totalDistance, 0.1), sourceIndex, receiverIndex);
-        recordRaySegment(point, receiver, weighted, totalDistance, bounce);
+        recordRaySegment(point, receiver, weighted, totalDistance, bounce, false);
     }
 }
 
@@ -352,7 +355,7 @@ void main() {
             break;
 
         // Kugeltreffer spekularer Pfade ab der ersten Reflexion. Erwartete Trefferzahl
-        // N r²/(4 d²) => Gewicht 4d/(N r²) liefert im Mittel die Amplitude 1/d.
+        // N rÃƒâ€šÃ‚Â²/(4 dÃƒâ€šÃ‚Â²) => Gewicht 4d/(N rÃƒâ€šÃ‚Â²) liefert im Mittel die Amplitude 1/d.
         if (bounce >= 1 && specularChain) {
             for (int receiverIndex = 0; receiverIndex < simulation.configuration.y;
                  ++receiverIndex) {
@@ -372,12 +375,12 @@ void main() {
                                 (float(numRays) * radius * radius);
                 addTap(totalDistance, weighted, sourceIndex, receiverIndex);
                 recordRaySegment(origin, origin + direction * along,
-                                 weighted * max(totalDistance, 0.1), totalDistance, bounce);
+                                 weighted * max(totalDistance, 0.1), totalDistance, bounce, false);
             }
         }
 
         recordRaySegment(origin, origin + direction * hitT, pathGain,
-                         pathDistance + hitT, bounce);
+                         pathDistance + hitT, bounce, true);
 
         if (bounce == maxBounces)
             break;

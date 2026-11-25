@@ -1,8 +1,9 @@
-#pragma once
+﻿#pragma once
 
 #include "parameters/ParameterLayout.h"
 #include "raytracing/BVHNode.h"
 #include "scene/RoomMesh.h"
+#include "ui/LevelLegendComponent.h"
 
 #include <atomic>
 #include <array>
@@ -46,6 +47,7 @@ public:
 private:
     void uploadPendingMeshIfNeeded();
     void uploadRayPathsIfNeeded();
+    std::vector<glm::vec3> collectReceiverPositions() const;
     void createMarkerGeometry();
     void createDirectionGeometry();
     void createRayGeometry();
@@ -64,6 +66,7 @@ private:
     GLint uUseLightingLoc { -1 };
     GLint uUseMaterialTextureLoc { -1 };
     GLint uRayModeLoc { -1 };
+    GLint uPointScaleLoc { -1 };
 
     GLuint roomVao { 0 };
     GLuint roomVbo { 0 };
@@ -81,6 +84,20 @@ private:
     std::array<GLint, 3> rayPathFirst {};
     std::array<GLsizei, 3> rayPathCounts {};
     std::shared_ptr<const std::vector<RaySegment>> rayPathSnapshot;
+    GLint cloudPointFirst { 0 };
+    GLsizei cloudPointCount { 0 };
+    GLint arrowFirst { 0 };
+    GLsizei arrowCount { 0 };
+    GLint heatPointFirst { 0 };
+    GLsizei heatPointCount { 0 };
+    float cloudCellSize { 0.25f };
+    glm::vec3 roomBoundsMin { -5.0f };
+    glm::vec3 roomBoundsMax { 5.0f };
+    bool uploadedCloud { false };
+    bool uploadedRays { false };
+    SoundViewBand uploadedBand { SoundViewBand::Broadband };
+    ArrivalFilter uploadedArrival { ArrivalFilter::All };
+    std::vector<glm::vec3> uploadedReceivers;
 
     std::mutex meshMutex;
     std::shared_ptr<const RoomMesh> pendingMesh;
@@ -96,6 +113,7 @@ private:
 
     juce::Label roomNameLabel;
     juce::Label cameraHintLabel;
+    LevelLegendComponent levelLegend;
     juce::TextButton changeRoomButton { "Change Room" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Viewport3DComponent)

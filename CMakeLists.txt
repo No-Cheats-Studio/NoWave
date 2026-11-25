@@ -128,6 +128,8 @@ target_sources(NoWave
         src/ui/StartScreenComponent.h
         src/ui/Viewport3DComponent.cpp
         src/ui/Viewport3DComponent.h
+        src/ui/LevelLegendComponent.cpp
+        src/ui/LevelLegendComponent.h
         src/ui/BottomControlBar.cpp
         src/ui/BottomControlBar.h
         src/audio/ChannelEQ.cpp

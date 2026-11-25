@@ -1,4 +1,4 @@
-#include "ui/BottomControlBar.h"
+﻿#include "ui/BottomControlBar.h"
 #include "parameters/ParameterLayout.h"
 #include "ui/Palette.h"
 
@@ -185,17 +185,52 @@ BottomControlBar::BottomControlBar(juce::AudioProcessorValueTreeState& apvts,
     rightPatternAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
         apvts, ParamIDs::rightMicrophonePattern, rightPatternBox);
 
+    configureGroupCaption(soundViewGroupLabel, "SOUND VIEW", *this);
+
+    configureChoice(soundViewBox, soundViewLabel, "Cloud",
+                    "Sound cloud: colour = level in dB (0 dB = direct sound at 1 m), "
+                    "arrows = direction the sound travels.",
+                    *this);
+    soundViewBox.addItem("Off", 1);
+    soundViewBox.addItem("On", 2);
+    soundViewBox.setExplicitFocusOrder(15);
+    soundViewAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        apvts, ParamIDs::soundView, soundViewBox);
+
     showRayPathsButton.setButtonText("Show rays");
     showRayPathsButton.setColour(juce::ToggleButton::textColourId, kLabelColour);
     showRayPathsButton.setColour(juce::ToggleButton::tickColourId, palette::receiver);
     showRayPathsButton.setTooltip(
         "Debug view: draws the simulated ray paths in the 3D room view.");
     showRayPathsButton.setWantsKeyboardFocus(true);
-    showRayPathsButton.setExplicitFocusOrder(15);
+    showRayPathsButton.setExplicitFocusOrder(20);
     addAndMakeVisible(showRayPathsButton);
     showRayPathsAtt =
         std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
             apvts, ParamIDs::showRayPaths, showRayPathsButton);
+
+    configureChoice(soundViewBandBox, soundViewBandLabel, "Band",
+                    "Frequency band shown in the cloud: broadband or Low / Mid / High.",
+                    *this);
+    soundViewBandBox.addItem("Broadband", 1);
+    soundViewBandBox.addItem("Low", 2);
+    soundViewBandBox.addItem("Mid", 3);
+    soundViewBandBox.addItem("High", 4);
+    soundViewBandBox.setExplicitFocusOrder(18);
+    soundViewBandAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        apvts, ParamIDs::soundViewBand, soundViewBandBox);
+
+    configureChoice(soundViewArrivalBox, soundViewArrivalLabel, "Arrival",
+                    "Filter by arrival time: Direct sound, Early reflections (up to 3 reflections) "
+                    "or Late reverb tail.",
+                    *this);
+    soundViewArrivalBox.addItem("All", 1);
+    soundViewArrivalBox.addItem("Direct sound", 2);
+    soundViewArrivalBox.addItem("Early reflections", 3);
+    soundViewArrivalBox.addItem("Late reverb", 4);
+    soundViewArrivalBox.setExplicitFocusOrder(19);
+    soundViewArrivalAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        apvts, ParamIDs::soundViewArrival, soundViewArrivalBox);
 
     configureAxisSlider(rayDensitySlider, rayDensityLabel, "Ray density (rays)",
                         "Rays emitted per simulation. Higher values are more accurate "
@@ -589,7 +624,7 @@ void BottomControlBar::resized()
 
     const int patternCells = microphonePatternBox.isVisible() ? 1
                            : (leftPatternBox.isVisible() ? 2 : 0);
-    const int totalCells = 1 + (1 + patternCells) + 3;
+    const int totalCells = 1 + (1 + patternCells) + 2 + 4;
     const int cellWidth = juce::jmax(1, topRow.getWidth() / totalCells);
 
     const auto placeGroup = [&topRow, cellWidth](int cells, juce::Label& caption)
@@ -611,11 +646,16 @@ void BottomControlBar::resized()
     if (rightPatternBox.isVisible())
         placeChoice(listenerRow, cellWidth, rightPatternLabel, rightPatternBox);
 
-    auto raytracingRow = placeGroup(3, raytracingGroupLabel);
-    showRayPathsButton.setBounds(raytracingRow.removeFromLeft(cellWidth).reduced(4, 0)
-                                     .withTrimmedTop(kCaptionHeight));
+    auto raytracingRow = placeGroup(2, raytracingGroupLabel);
     placeChoice(raytracingRow, cellWidth, rayDensityLabel, rayDensitySlider);
     placeChoice(raytracingRow, cellWidth, rayBouncesLabel, rayBouncesSlider);
+
+    auto soundViewRow = placeGroup(4, soundViewGroupLabel);
+    placeChoice(soundViewRow, cellWidth, soundViewLabel, soundViewBox);
+    placeChoice(soundViewRow, cellWidth, soundViewBandLabel, soundViewBandBox);
+    placeChoice(soundViewRow, cellWidth, soundViewArrivalLabel, soundViewArrivalBox);
+    showRayPathsButton.setBounds(soundViewRow.removeFromLeft(cellWidth).reduced(4, 0)
+                                     .withTrimmedTop(kCaptionHeight));
 
     area.removeFromTop(kTopRowGap);
 

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // GPU-compatible struct layouts (std430 / 16-byte aligned on both CPU and GPU).
 // CPU-side versions mirror GLSL std430 layout exactly so we can memcpy to Vulkan buffers.
@@ -78,7 +78,9 @@ static_assert(sizeof(RayTap) == 32);
 
 // Ray segment for visualisation (48 bytes, std430; mirrors GLSL RaySegment):
 //   start[3] / end[3] = broadband energy 0..1, energy* = energy per band,
-//   reflectionIndex = number of reflections before this segment (0 = direct).
+//   reflectionIndex >= 0: segment of the ray path itself, energy* = power per ray (amp^2).
+//   reflectionIndex < 0: helper segment ending at a receiver, reflections = -1 - reflectionIndex,
+//   energy* = level at the receiver including 1/r.
 struct alignas(16) RaySegment
 {
     float start[4];
