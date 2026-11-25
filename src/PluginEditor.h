@@ -27,6 +27,7 @@ private:
     nowave::StartScreenComponent startScreen;
     nowave::Viewport3DComponent viewport3D;
     nowave::BottomControlBar bottomControlBar;
+    juce::TooltipWindow tooltipWindow { this, 700 };
 
     bool isRoomLoaded { false };
 

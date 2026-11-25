@@ -1,5 +1,6 @@
 #include "ui/BottomControlBar.h"
 #include "parameters/ParameterLayout.h"
+#include "ui/Palette.h"
 
 #include <algorithm>
 #include <cmath>
@@ -9,60 +10,118 @@ namespace nowave
 {
 namespace
 {
+constexpr int kMinClickTarget = 24;
+constexpr int kCaptionHeight = 16;
+constexpr int kTopRowHeight = 60;
+constexpr int kTopRowGap = 6;
+constexpr int kBaseHeight = 232;
+constexpr int kPositionRowsHeight = 94;
+// Height reserved for one row of PA channel panels (title + 3 position rows + 2 rotary knobs).
+constexpr int kPaChannelHeight = 150;
+
+const juce::Colour& kLabelColour = palette::textLabel;
+const juce::Colour& kMutedLabelColour = palette::textMuted;
+const juce::Colour& kGroupColour = palette::textSubtle;
+const juce::Colour& kFieldColour = palette::field;
+const juce::Colour& kFieldOutlineColour = palette::fieldOutline;
+const juce::Colour& kTextColour = palette::text;
+
 void configureRotary(juce::Slider& slider,
                      juce::Label& label,
                      const juce::String& text,
+                     const juce::String& tooltip,
                      juce::Colour accent,
                      juce::Component& parent)
 {
     slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-    slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 58, 18);
+    slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 58, kMinClickTarget);
     slider.setColour(juce::Slider::rotarySliderFillColourId, accent);
     slider.setColour(juce::Slider::thumbColourId, accent);
+    slider.setTooltip(tooltip);
+    slider.setWantsKeyboardFocus(true);
     parent.addAndMakeVisible(slider);
 
     label.setText(text, juce::dontSendNotification);
     label.setFont(juce::FontOptions(11.5f));
-    label.setColour(juce::Label::textColourId, juce::Colour(0xff94a3b8));
+    label.setColour(juce::Label::textColourId, kMutedLabelColour);
     label.setJustificationType(juce::Justification::centred);
+    label.setTooltip(tooltip);
     parent.addAndMakeVisible(label);
 }
 
 void configureAxisSlider(juce::Slider& slider,
                          juce::Label& label,
                          const juce::String& text,
+                         const juce::String& tooltip,
                          juce::Colour accent,
                          juce::Component& parent)
 {
     slider.setSliderStyle(juce::Slider::LinearHorizontal);
-    slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 68, 22);
+    slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 68, kMinClickTarget);
     slider.setColour(juce::Slider::trackColourId, accent.withAlpha(0.7f));
     slider.setColour(juce::Slider::thumbColourId, accent);
-    slider.setColour(juce::Slider::textBoxTextColourId, juce::Colour(0xffe2e8f0));
-    slider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff202733));
+    slider.setColour(juce::Slider::textBoxTextColourId, kTextColour);
+    slider.setColour(juce::Slider::textBoxBackgroundColourId, kFieldColour);
+    slider.setTooltip(tooltip);
+    slider.setWantsKeyboardFocus(true);
     parent.addAndMakeVisible(slider);
 
     label.setText(text, juce::dontSendNotification);
     label.setFont(juce::FontOptions(11.5f, juce::Font::bold));
-    label.setColour(juce::Label::textColourId, juce::Colour(0xffcbd5e1));
+    label.setColour(juce::Label::textColourId, kLabelColour);
     label.setJustificationType(juce::Justification::centredLeft);
+    label.setTooltip(tooltip);
     parent.addAndMakeVisible(label);
 }
 
 void configureChoice(juce::ComboBox& box,
                      juce::Label& label,
                      const juce::String& text,
+                     const juce::String& tooltip,
                      juce::Component& parent)
 {
     label.setText(text, juce::dontSendNotification);
     label.setFont(juce::FontOptions(10.5f, juce::Font::bold));
-    label.setColour(juce::Label::textColourId, juce::Colour(0xff94a3b8));
+    label.setColour(juce::Label::textColourId, kMutedLabelColour);
+    label.setTooltip(tooltip);
     parent.addAndMakeVisible(label);
 
-    box.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff202733));
-    box.setColour(juce::ComboBox::textColourId, juce::Colour(0xffe2e8f0));
-    box.setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff374151));
+    box.setColour(juce::ComboBox::backgroundColourId, kFieldColour);
+    box.setColour(juce::ComboBox::textColourId, kTextColour);
+    box.setColour(juce::ComboBox::outlineColourId, kFieldOutlineColour);
+    box.setTooltip(tooltip);
+    box.setWantsKeyboardFocus(true);
     parent.addAndMakeVisible(box);
+}
+
+void configureGroupCaption(juce::Label& label, const juce::String& text, juce::Component& parent)
+{
+    label.setText(text, juce::dontSendNotification);
+    label.setFont(juce::FontOptions(10.5f, juce::Font::bold));
+    label.setColour(juce::Label::textColourId, kGroupColour);
+    label.setJustificationType(juce::Justification::centredLeft);
+    parent.addAndMakeVisible(label);
+}
+
+void configureGainEditor(juce::TextEditor& editor, const juce::String& tooltip, int focusOrder,
+                         juce::Component& parent)
+{
+    editor.setColour(juce::TextEditor::backgroundColourId, kFieldColour);
+    editor.setColour(juce::TextEditor::textColourId, kTextColour);
+    editor.setColour(juce::TextEditor::outlineColourId, kFieldOutlineColour);
+    editor.setJustification(juce::Justification::centred);
+    editor.setFont(juce::FontOptions(11.0f));
+    editor.setTooltip(tooltip);
+    editor.setWantsKeyboardFocus(true);
+    editor.setExplicitFocusOrder(focusOrder);
+    parent.addAndMakeVisible(editor);
+}
+
+void placeChoice(juce::Rectangle<int>& row, int width, juce::Label& label, juce::Component& control)
+{
+    auto cell = row.removeFromLeft(width).reduced(4, 0);
+    label.setBounds(cell.removeFromTop(kCaptionHeight));
+    control.setBounds(cell);
 }
 } // namespace
 
@@ -70,10 +129,103 @@ BottomControlBar::BottomControlBar(juce::AudioProcessorValueTreeState& apvts,
                                    std::function<void()> layoutChanged)
     : onLayoutChanged(std::move(layoutChanged))
 {
+    configureGroupCaption(sourceGroupLabel, "SOURCE", *this);
+    configureGroupCaption(listenerGroupLabel, "LISTENER", *this);
+    configureGroupCaption(raytracingGroupLabel, "RAYTRACING", *this);
+    configureGroupCaption(roomGroupLabel, "ROOM / OUTPUT", *this);
+
+    configureChoice(outputTypeBox, outputTypeLabel, "Source type",
+                    "Type of sound source: Vocal (one source), Speaker Box or PA (two sources).",
+                    *this);
+    outputTypeBox.addItem("Vocal (single source)", 1);
+    outputTypeBox.addItem("Speaker Box (two sources)", 2);
+    outputTypeBox.addItem("PA (two sources)", 3);
+    outputTypeBox.setExplicitFocusOrder(10);
+    outputTypeAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        apvts, ParamIDs::outputType, outputTypeBox);
+
+    configureChoice(inputTypeBox, inputTypeLabel, "Listener type",
+                    "Type of receiver: Microphone (one receiver), Ears (two receivers) or PA (two microphones).",
+                    *this);
+    inputTypeBox.addItem("Microphone (single receiver)", 1);
+    inputTypeBox.addItem("Ears (two receivers)", 2);
+    inputTypeBox.addItem("PA (two microphones)", 3);
+    inputTypeBox.setExplicitFocusOrder(11);
+    inputTypeAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        apvts, ParamIDs::inputType, inputTypeBox);
+
+    const juce::StringArray patterns {
+        "Omnidirectional", "Cardioid", "Supercardioid", "Figure-Eight"
+    };
+
+    configureChoice(microphonePatternBox, microphonePatternLabel, "Mic pattern",
+                    "Pickup pattern of the microphone when the listener type is Microphone.",
+                    *this);
+    for (int i = 0; i < patterns.size(); ++i)
+        microphonePatternBox.addItem(patterns[i], i + 1);
+    microphonePatternBox.setExplicitFocusOrder(12);
+    microphonePatternAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        apvts, ParamIDs::microphonePattern, microphonePatternBox);
+
+    configureChoice(leftPatternBox, leftPatternLabel, "PA left mic",
+                    "Pickup pattern of the left PA microphone (listener type PA).",
+                    *this);
+    for (int i = 0; i < patterns.size(); ++i)
+        leftPatternBox.addItem(patterns[i], i + 1);
+    leftPatternBox.setExplicitFocusOrder(13);
+    leftPatternAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        apvts, ParamIDs::leftMicrophonePattern, leftPatternBox);
+
+    configureChoice(rightPatternBox, rightPatternLabel, "PA right mic",
+                    "Pickup pattern of the right PA microphone (listener type PA).",
+                    *this);
+    for (int i = 0; i < patterns.size(); ++i)
+        rightPatternBox.addItem(patterns[i], i + 1);
+    rightPatternBox.setExplicitFocusOrder(14);
+    rightPatternAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        apvts, ParamIDs::rightMicrophonePattern, rightPatternBox);
+
+    showRayPathsButton.setButtonText("Show rays");
+    showRayPathsButton.setColour(juce::ToggleButton::textColourId, kLabelColour);
+    showRayPathsButton.setColour(juce::ToggleButton::tickColourId, palette::receiver);
+    showRayPathsButton.setTooltip(
+        "Debug view: draws the simulated ray paths in the 3D room view.");
+    showRayPathsButton.setWantsKeyboardFocus(true);
+    showRayPathsButton.setExplicitFocusOrder(15);
+    addAndMakeVisible(showRayPathsButton);
+    showRayPathsAtt =
+        std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+            apvts, ParamIDs::showRayPaths, showRayPathsButton);
+
+    configureAxisSlider(rayDensitySlider, rayDensityLabel, "Ray density (rays)",
+                        "Rays emitted per simulation. Higher values are more accurate "
+                        "but need more computation time.",
+                        palette::receiver, *this);
+    rayDensitySlider.setRange(kMinRayCount, kMaxRayCount, 1.0);
+    rayDensitySlider.setNumDecimalPlacesToDisplay(0);
+    rayDensitySlider.setTextValueSuffix(" rays");
+    rayDensitySlider.setExplicitFocusOrder(16);
+    rayDensityAtt =
+        std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+            apvts, ParamIDs::rayDensity, rayDensitySlider);
+
+    configureAxisSlider(rayBouncesSlider, rayBouncesLabel, "Max bounces (per ray)",
+                        "Maximum wall reflections per ray. Higher values capture longer "
+                        "reverberation but need more computation time.",
+                        palette::receiver, *this);
+    rayBouncesSlider.setRange(0, kMaxRayBounces, 1.0);
+    rayBouncesSlider.setNumDecimalPlacesToDisplay(0);
+    rayBouncesSlider.setTextValueSuffix(" bounces");
+    rayBouncesSlider.setExplicitFocusOrder(17);
+    rayBouncesAtt =
+        std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+            apvts, ParamIDs::rayBounces, rayBouncesSlider);
+
     initObjectPanel(sourcePanel,
                     apvts,
                     "SOURCE (EMITTER)",
-                    juce::Colour(0xfff97316),
+                    "source",
+                    palette::source,
                     ParamIDs::srcX,
                     ParamIDs::srcY,
                     ParamIDs::srcZ,
@@ -82,12 +234,14 @@ BottomControlBar::BottomControlBar(juce::AudioProcessorValueTreeState& apvts,
                     ParamIDs::srcEqLowGain,
                     ParamIDs::srcEqMidGain,
                     ParamIDs::srcEqMidFreq,
-                    ParamIDs::srcEqHighGain);
+                    ParamIDs::srcEqHighGain,
+                    20);
 
     initObjectPanel(listenerPanel,
                     apvts,
                     "LISTENER (RECEIVER)",
-                    juce::Colour(0xff38bdf8),
+                    "listener",
+                    palette::accentSky,
                     ParamIDs::dstX,
                     ParamIDs::dstY,
                     ParamIDs::dstZ,
@@ -96,19 +250,20 @@ BottomControlBar::BottomControlBar(juce::AudioProcessorValueTreeState& apvts,
                     ParamIDs::dstEqLowGain,
                     ParamIDs::dstEqMidGain,
                     ParamIDs::dstEqMidFreq,
-                    ParamIDs::dstEqHighGain);
+                    ParamIDs::dstEqHighGain,
+                    40);
 
-    configureRotary(inputGainSlider, inputGainLabel, "Input", juce::Colour(0xffa78bfa), *this);
+    configureRotary(inputGainSlider, inputGainLabel, "Input (dB)",
+                    "Input gain in dB, applied before the room effect. Range -120 to +120 dB.",
+                    palette::accentViolet, *this);
     inputGainSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    inputGainSlider.setExplicitFocusOrder(30);
     inputGainAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         apvts, ParamIDs::inputGain, inputGainSlider);
-    inputGainEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff202733));
-    inputGainEditor.setColour(juce::TextEditor::textColourId, juce::Colour(0xffe2e8f0));
-    inputGainEditor.setColour(juce::TextEditor::outlineColourId, juce::Colour(0xff374151));
-    inputGainEditor.setJustification(juce::Justification::centred);
-    inputGainEditor.setFont(juce::FontOptions(11.0f));
-    inputGainEditor.setTooltip(
-        "Input gain in dB. Values are internally limited to +/-120 dB; no limiter is applied.");
+    configureGainEditor(inputGainEditor,
+                        "Type an exact input gain in dB and press Enter. Limited to +/-120 dB; "
+                        "no limiter is applied.",
+                        31, *this);
     inputGainEditor.setText(juce::String(inputGainSlider.getValue(), 1) + " dB",
                             juce::dontSendNotification);
     inputGainEditor.onReturnKey = [this]
@@ -119,7 +274,6 @@ BottomControlBar::BottomControlBar(juce::AudioProcessorValueTreeState& apvts,
     {
         commitGainEntry(inputGainEditor, inputGainSlider);
     };
-    addAndMakeVisible(inputGainEditor);
     inputGainSlider.onValueChange = [this]
     {
         if (!inputGainEditor.hasKeyboardFocus(true))
@@ -127,22 +281,26 @@ BottomControlBar::BottomControlBar(juce::AudioProcessorValueTreeState& apvts,
                                     juce::dontSendNotification);
     };
 
-    configureRotary(dryWetSlider, dryWetLabel, "Dry/Wet", juce::Colour(0xffa78bfa), *this);
+    configureRotary(dryWetSlider, dryWetLabel, "Dry/Wet (%)",
+                    "Balance between the original (dry) and reverberant (wet) signal. "
+                    "0 % is fully dry, 100 % is fully wet.",
+                    palette::accentViolet, *this);
     dryWetSlider.setTextValueSuffix(" %");
+    dryWetSlider.setExplicitFocusOrder(32);
     dryWetAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         apvts, ParamIDs::dryWet, dryWetSlider);
 
-    configureRotary(gainSlider, gainLabel, "Output", juce::Colour(0xffa78bfa), *this);
+    configureRotary(gainSlider, gainLabel, "Output (dB)",
+                    "Output gain in dB, applied after dry/wet mixing. Range -120 to +120 dB.",
+                    palette::accentViolet, *this);
     gainSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    gainSlider.setExplicitFocusOrder(33);
     gainAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         apvts, ParamIDs::gain, gainSlider);
-    outputGainEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff202733));
-    outputGainEditor.setColour(juce::TextEditor::textColourId, juce::Colour(0xffe2e8f0));
-    outputGainEditor.setColour(juce::TextEditor::outlineColourId, juce::Colour(0xff374151));
-    outputGainEditor.setJustification(juce::Justification::centred);
-    outputGainEditor.setFont(juce::FontOptions(11.0f));
-    outputGainEditor.setTooltip(
-        "Output gain in dB. Values are internally limited to +/-120 dB; no limiter is applied.");
+    configureGainEditor(outputGainEditor,
+                        "Type an exact output gain in dB and press Enter. Limited to +/-120 dB; "
+                        "no limiter is applied.",
+                        34, *this);
     outputGainEditor.setText(juce::String(gainSlider.getValue(), 1) + " dB",
                              juce::dontSendNotification);
     outputGainEditor.onReturnKey = [this]
@@ -153,7 +311,6 @@ BottomControlBar::BottomControlBar(juce::AudioProcessorValueTreeState& apvts,
     {
         commitGainEntry(outputGainEditor, gainSlider);
     };
-    addAndMakeVisible(outputGainEditor);
     gainSlider.onValueChange = [this]
     {
         if (!outputGainEditor.hasKeyboardFocus(true))
@@ -161,80 +318,142 @@ BottomControlBar::BottomControlBar(juce::AudioProcessorValueTreeState& apvts,
                                      juce::dontSendNotification);
     };
 
-    configureChoice(outputTypeBox, outputTypeLabel, "Output", *this);
-    outputTypeBox.addItem("Vocal", 1);
-    outputTypeBox.addItem("Speaker Box", 2);
-    outputTypeBox.addItem("PA", 3);
-    outputTypeAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-        apvts, ParamIDs::outputType, outputTypeBox);
-    configureChoice(inputTypeBox, inputTypeLabel, "Input", *this);
-    inputTypeBox.addItem("Microphone", 1);
-    inputTypeBox.addItem("Ears", 2);
-    inputTypeBox.addItem("PA", 3);
-    inputTypeAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-        apvts, ParamIDs::inputType, inputTypeBox);
-    configureChoice(microphonePatternBox, microphonePatternLabel, "Mic Pattern", *this);
-    const juce::StringArray patterns {
-        "Omnidirectional", "Cardioid", "Supercardioid", "Figure-Eight"
-    };
-    for (int i = 0; i < patterns.size(); ++i)
-        microphonePatternBox.addItem(patterns[i], i + 1);
-    microphonePatternAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-        apvts, ParamIDs::microphonePattern, microphonePatternBox);
-    configureChoice(leftPatternBox, leftPatternLabel, "PA Left Mic", *this);
-    for (int i = 0; i < patterns.size(); ++i)
-        leftPatternBox.addItem(patterns[i], i + 1);
-    leftPatternAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-        apvts, ParamIDs::leftMicrophonePattern, leftPatternBox);
-    configureChoice(rightPatternBox, rightPatternLabel, "PA Right Mic", *this);
-    for (int i = 0; i < patterns.size(); ++i)
-        rightPatternBox.addItem(patterns[i], i + 1);
-    rightPatternAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-        apvts, ParamIDs::rightMicrophonePattern, rightPatternBox);
-
-    showRayPathsButton.setButtonText("Show Rays");
-    showRayPathsButton.setColour(juce::ToggleButton::textColourId,
-                                 juce::Colour(0xffcbd5e1));
-    showRayPathsButton.setTooltip(
-        "Show the ray paths used by the acoustic simulation in the room view.");
-    addAndMakeVisible(showRayPathsButton);
-    showRayPathsAtt =
-        std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-            apvts, ParamIDs::showRayPaths, showRayPathsButton);
-
-    configureAxisSlider(rayDensitySlider, rayDensityLabel, "Ray Density",
-                        juce::Colour(0xff22d3ee), *this);
-    rayDensitySlider.setRange(kMinRayCount, kMaxRayCount, 1.0);
-    rayDensitySlider.setNumDecimalPlacesToDisplay(0);
-    rayDensitySlider.setTextValueSuffix(" rays");
-    rayDensitySlider.setTooltip(
-        "Number of emitted rays. Higher values improve ray-tracing quality but take longer.");
-    rayDensityAtt =
-        std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-            apvts, ParamIDs::rayDensity, rayDensitySlider);
-
-    configureAxisSlider(rayBouncesSlider, rayBouncesLabel, "Max Bounces",
-                        juce::Colour(0xff22d3ee), *this);
-    rayBouncesSlider.setRange(0, kMaxRayBounces, 1.0);
-    rayBouncesSlider.setNumDecimalPlacesToDisplay(0);
-    rayBouncesSlider.setTextValueSuffix(" bounces");
-    rayBouncesSlider.setTooltip(
-        "Maximum number of reflections traced for each ray.");
-    rayBouncesAtt =
-        std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-            apvts, ParamIDs::rayBounces, rayBouncesSlider);
+    initPaChannel(paSourceLeft, apvts, "PA SPEAKER LEFT", palette::source, 50,
+                  ParamIDs::paSrcLeftX, ParamIDs::paSrcLeftY, ParamIDs::paSrcLeftZ,
+                  ParamIDs::paSrcLeftYaw, ParamIDs::paSrcLeftPitch);
+    initPaChannel(paSourceRight, apvts, "PA SPEAKER RIGHT", palette::sourceAlt, 60,
+                  ParamIDs::paSrcRightX, ParamIDs::paSrcRightY, ParamIDs::paSrcRightZ,
+                  ParamIDs::paSrcRightYaw, ParamIDs::paSrcRightPitch);
+    initPaChannel(paListenerLeft, apvts, "PA MIC LEFT", palette::accentSky, 70,
+                  ParamIDs::paDstLeftX, ParamIDs::paDstLeftY, ParamIDs::paDstLeftZ,
+                  ParamIDs::paDstLeftYaw, ParamIDs::paDstLeftPitch);
+    initPaChannel(paListenerRight, apvts, "PA MIC RIGHT", palette::receiverDirectionAlt, 80,
+                  ParamIDs::paDstRightX, ParamIDs::paDstRightY, ParamIDs::paDstRightZ,
+                  ParamIDs::paDstRightYaw, ParamIDs::paDstRightPitch);
 
     inputTypeBox.onChange = [this]
     {
         updateInputMenuAvailability();
+        updatePaPanelsAvailability();
         resized();
+        if (onLayoutChanged)
+            onLayoutChanged();
+    };
+    outputTypeBox.onChange = [this]
+    {
+        updatePaPanelsAvailability();
+        resized();
+        if (onLayoutChanged)
+            onLayoutChanged();
     };
     updateInputMenuAvailability();
+    updatePaPanelsAvailability();
+}
+
+void BottomControlBar::initPaChannel(PaChannel& channel,
+                                     juce::AudioProcessorValueTreeState& apvts,
+                                     const juce::String& title,
+                                     juce::Colour accent,
+                                     int focusBase,
+                                     const char* idX,
+                                     const char* idY,
+                                     const char* idZ,
+                                     const char* idYaw,
+                                     const char* idPitch)
+{
+    channel.title.setText(title, juce::dontSendNotification);
+    channel.title.setFont(juce::FontOptions(10.5f, juce::Font::bold));
+    channel.title.setColour(juce::Label::textColourId, accent);
+    addChildComponent(channel.title);
+
+    const juce::String tip = "Placement of the " + title.toLowerCase() + " in meters. ";
+    configureAxisSlider(channel.x, channel.xLabel, "X (m)", tip + "X axis.", accent, *this);
+    configureAxisSlider(channel.y, channel.yLabel, "Y (m)", tip + "Y axis (height).", accent, *this);
+    configureAxisSlider(channel.z, channel.zLabel, "Z (m)", tip + "Z axis.", accent, *this);
+    channel.x.setTextValueSuffix(" m");
+    channel.y.setTextValueSuffix(" m");
+    channel.z.setTextValueSuffix(" m");
+    configureRotary(channel.yaw, channel.yawLabel, "Yaw (deg)",
+                    "Horizontal facing direction of the " + title.toLowerCase() + " in degrees.",
+                    accent, *this);
+    channel.yaw.setTextValueSuffix(" deg");
+    configureRotary(channel.pitch, channel.pitchLabel, "Pitch (deg)",
+                    "Vertical tilt of the " + title.toLowerCase() + " in degrees.",
+                    accent, *this);
+    channel.pitch.setTextValueSuffix(" deg");
+
+    channel.x.setExplicitFocusOrder(focusBase + 1);
+    channel.y.setExplicitFocusOrder(focusBase + 2);
+    channel.z.setExplicitFocusOrder(focusBase + 3);
+    channel.yaw.setExplicitFocusOrder(focusBase + 4);
+    channel.pitch.setExplicitFocusOrder(focusBase + 5);
+
+    channel.xAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, idX, channel.x);
+    channel.yAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, idY, channel.y);
+    channel.zAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, idZ, channel.z);
+    channel.yawAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, idYaw, channel.yaw);
+    channel.pitchAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, idPitch, channel.pitch);
+}
+
+bool BottomControlBar::showingPaSources() const
+{
+    return outputTypeBox.getSelectedId() == static_cast<int>(OutputType::PA) + 1;
+}
+
+bool BottomControlBar::showingPaListeners() const
+{
+    return inputTypeBox.getSelectedId() == static_cast<int>(InputType::PA) + 1;
+}
+
+void BottomControlBar::updatePaPanelsAvailability()
+{
+    const bool sources = showingPaSources();
+    const bool listeners = showingPaListeners();
+    for (auto* channel : { &paSourceLeft, &paSourceRight })
+    {
+        channel->title.setVisible(sources);
+        for (auto* slider : { &channel->x, &channel->y, &channel->z, &channel->yaw, &channel->pitch })
+            slider->setVisible(sources);
+        for (auto* label : { &channel->xLabel, &channel->yLabel, &channel->zLabel,
+                             &channel->yawLabel, &channel->pitchLabel })
+            label->setVisible(sources);
+    }
+    for (auto* channel : { &paListenerLeft, &paListenerRight })
+    {
+        channel->title.setVisible(listeners);
+        for (auto* slider : { &channel->x, &channel->y, &channel->z, &channel->yaw, &channel->pitch })
+            slider->setVisible(listeners);
+        for (auto* label : { &channel->xLabel, &channel->yLabel, &channel->zLabel,
+                             &channel->yawLabel, &channel->pitchLabel })
+            label->setVisible(listeners);
+    }
+}
+
+void BottomControlBar::layoutPaChannel(PaChannel& channel, juce::Rectangle<int> bounds)
+{
+    channel.title.setBounds(bounds.removeFromTop(kCaptionHeight));
+    juce::Slider* axisSliders[] = { &channel.x, &channel.y, &channel.z };
+    juce::Label* axisLabels[] = { &channel.xLabel, &channel.yLabel, &channel.zLabel };
+    for (int i = 0; i < 3; ++i)
+    {
+        auto row = bounds.removeFromTop(kMinClickTarget + 4);
+        axisLabels[i]->setBounds(row.removeFromLeft(44));
+        axisSliders[i]->setBounds(row);
+    }
+    auto rotaryArea = bounds.reduced(2, 0);
+    const int cellWidth = rotaryArea.getWidth() / 2;
+    auto yawCell = rotaryArea.removeFromLeft(cellWidth).reduced(2, 0);
+    channel.yawLabel.setBounds(yawCell.removeFromTop(kCaptionHeight));
+    channel.yaw.setBounds(yawCell);
+    auto pitchCell = rotaryArea.reduced(2, 0);
+    channel.pitchLabel.setBounds(pitchCell.removeFromTop(kCaptionHeight));
+    channel.pitch.setBounds(pitchCell);
 }
 
 void BottomControlBar::initObjectPanel(ObjectPanel& panel,
                                        juce::AudioProcessorValueTreeState& apvts,
                                        const juce::String& title,
+                                       const juce::String& roleName,
                                        juce::Colour accent,
                                        const char* idX,
                                        const char* idY,
@@ -244,7 +463,8 @@ void BottomControlBar::initObjectPanel(ObjectPanel& panel,
                                        const char* idLow,
                                        const char* idMid,
                                        const char* idMidFreq,
-                                       const char* idHigh)
+                                       const char* idHigh,
+                                       int focusBase)
 {
     panel.accentColour = accent;
     panel.header.setText(title, juce::dontSendNotification);
@@ -253,9 +473,12 @@ void BottomControlBar::initObjectPanel(ObjectPanel& panel,
     addAndMakeVisible(panel.header);
 
     panel.positionToggle.setButtonText("Position +");
-    panel.positionToggle.setColour(juce::ToggleButton::textColourId,
-                                  juce::Colour(0xffcbd5e1));
+    panel.positionToggle.setColour(juce::ToggleButton::textColourId, kLabelColour);
     panel.positionToggle.setColour(juce::ToggleButton::tickColourId, accent);
+    panel.positionToggle.setTooltip("Show or hide the X, Y and Z position sliders (in meters) of the "
+                                    + roleName + ".");
+    panel.positionToggle.setWantsKeyboardFocus(true);
+    panel.positionToggle.setExplicitFocusOrder(focusBase);
     panel.positionToggle.onClick = [this, &panel]
     {
         panel.positionExpanded = panel.positionToggle.getToggleState();
@@ -266,9 +489,13 @@ void BottomControlBar::initObjectPanel(ObjectPanel& panel,
     };
     addAndMakeVisible(panel.positionToggle);
 
-    configureAxisSlider(panel.xSlider, panel.xLabel, "X", accent, *this);
-    configureAxisSlider(panel.ySlider, panel.yLabel, "Y", accent, *this);
-    configureAxisSlider(panel.zSlider, panel.zLabel, "Z", accent, *this);
+    const juce::String positionTip = "Position of the " + roleName + " in meters. ";
+    configureAxisSlider(panel.xSlider, panel.xLabel, "X (m)",
+                        positionTip + "X axis.", accent, *this);
+    configureAxisSlider(panel.ySlider, panel.yLabel, "Y (m)",
+                        positionTip + "Y axis (height).", accent, *this);
+    configureAxisSlider(panel.zSlider, panel.zLabel, "Z (m)",
+                        positionTip + "Z axis.", accent, *this);
     panel.xSlider.setTextValueSuffix(" m");
     panel.ySlider.setTextValueSuffix(" m");
     panel.zSlider.setTextValueSuffix(" m");
@@ -279,12 +506,42 @@ void BottomControlBar::initObjectPanel(ObjectPanel& panel,
     panel.yLabel.setVisible(false);
     panel.zLabel.setVisible(false);
 
-    configureRotary(panel.yawSlider, panel.yawLabel, "Yaw", accent, *this);
-    configureRotary(panel.pitchSlider, panel.pitchLabel, "Pitch", accent, *this);
-    configureRotary(panel.eqLowSlider, panel.eqLowLabel, "EQ Low", accent, *this);
-    configureRotary(panel.eqMidSlider, panel.eqMidLabel, "EQ Mid", accent, *this);
-    configureRotary(panel.eqMidFreqSlider, panel.eqMidFreqLabel, "Mid Hz", accent, *this);
-    configureRotary(panel.eqHighSlider, panel.eqHighLabel, "EQ High", accent, *this);
+    configureRotary(panel.yawSlider, panel.yawLabel, "Yaw (deg)",
+                    "Horizontal facing direction of the " + roleName + " in degrees.",
+                    accent, *this);
+    panel.yawSlider.setTextValueSuffix(" deg");
+
+    configureRotary(panel.pitchSlider, panel.pitchLabel, "Pitch (deg)",
+                    "Vertical tilt of the " + roleName + " in degrees.",
+                    accent, *this);
+    panel.pitchSlider.setTextValueSuffix(" deg");
+
+    configureRotary(panel.eqLowSlider, panel.eqLowLabel, "Low (dB)",
+                    "Low-shelf EQ gain of the " + roleName + " (about 200 Hz and below), in dB.",
+                    accent, *this);
+    panel.eqLowSlider.setTextValueSuffix(" dB");
+    configureRotary(panel.eqMidSlider, panel.eqMidLabel, "Mid (dB)",
+                    "Mid-band EQ gain of the " + roleName + " at the frequency set by Mid (Hz), in dB.",
+                    accent, *this);
+    panel.eqMidSlider.setTextValueSuffix(" dB");
+    configureRotary(panel.eqMidFreqSlider, panel.eqMidFreqLabel, "Mid (Hz)",
+                    "Center frequency of the mid-band EQ of the " + roleName + " (200 to 5000 Hz).",
+                    accent, *this);
+    panel.eqMidFreqSlider.setTextValueSuffix(" Hz");
+    configureRotary(panel.eqHighSlider, panel.eqHighLabel, "High (dB)",
+                    "High-shelf EQ gain of the " + roleName + " (about 8 kHz and above), in dB.",
+                    accent, *this);
+    panel.eqHighSlider.setTextValueSuffix(" dB");
+
+    panel.yawSlider.setExplicitFocusOrder(focusBase + 1);
+    panel.pitchSlider.setExplicitFocusOrder(focusBase + 2);
+    panel.xSlider.setExplicitFocusOrder(focusBase + 3);
+    panel.ySlider.setExplicitFocusOrder(focusBase + 4);
+    panel.zSlider.setExplicitFocusOrder(focusBase + 5);
+    panel.eqLowSlider.setExplicitFocusOrder(focusBase + 6);
+    panel.eqMidSlider.setExplicitFocusOrder(focusBase + 7);
+    panel.eqMidFreqSlider.setExplicitFocusOrder(focusBase + 8);
+    panel.eqHighSlider.setExplicitFocusOrder(focusBase + 9);
 
     panel.xAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, idX, panel.xSlider);
     panel.yAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, idY, panel.ySlider);
@@ -299,93 +556,111 @@ void BottomControlBar::initObjectPanel(ObjectPanel& panel,
 
 void BottomControlBar::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff141820));
+    g.fillAll(palette::panel);
 
-    g.setColour(juce::Colour(0xff262e3d));
+    g.setColour(palette::divider);
     g.drawLine(0.0f, 0.5f, static_cast<float>(getWidth()), 0.5f, 1.0f);
 
     const int masterWidth = 190;
     const int sideWidth = (getWidth() - masterWidth) / 2;
+    const float dividerTop = static_cast<float>(8 + kTopRowHeight + kTopRowGap);
+    const float dividerBottom = static_cast<float>(getHeight() - 10);
 
-    g.drawLine(static_cast<float>(sideWidth), 50.0f,
-               static_cast<float>(sideWidth), static_cast<float>(getHeight() - 10), 1.0f);
-    g.drawLine(static_cast<float>(sideWidth + masterWidth), 50.0f,
-               static_cast<float>(sideWidth + masterWidth), static_cast<float>(getHeight() - 10), 1.0f);
+    g.drawLine(static_cast<float>(sideWidth), dividerTop,
+               static_cast<float>(sideWidth), dividerBottom, 1.0f);
+    g.drawLine(static_cast<float>(sideWidth + masterWidth), dividerTop,
+               static_cast<float>(sideWidth + masterWidth), dividerBottom, 1.0f);
 }
 
 int BottomControlBar::getPreferredHeight() const noexcept
 {
-    return sourcePanel.positionExpanded || listenerPanel.positionExpanded ? 304 : 210;
+    int height = kBaseHeight;
+    if (sourcePanel.positionExpanded || listenerPanel.positionExpanded)
+        height += kPositionRowsHeight;
+    if (showingPaSources() || showingPaListeners())
+        height += kPaChannelHeight;
+    return height;
 }
 
 void BottomControlBar::resized()
 {
     auto area = getLocalBounds().reduced(8, 8);
-    auto choices = area.removeFromTop(38);
-    juce::ComboBox* choiceBoxes[] = {
-        &outputTypeBox, &inputTypeBox, &microphonePatternBox,
-        &leftPatternBox, &rightPatternBox
-    };
-    juce::Label* choiceLabels[] = {
-        &outputTypeLabel, &inputTypeLabel, &microphonePatternLabel,
-        &leftPatternLabel, &rightPatternLabel
-    };
-    int visibleChoiceCount = 0;
-    for (const auto* box : choiceBoxes)
-        if (box->isVisible())
-            ++visibleChoiceCount;
+    auto topRow = area.removeFromTop(kTopRowHeight);
 
-    int remainingControls = visibleChoiceCount + 3;
-    const auto takeControlCell = [&choices, &remainingControls]
+    const int patternCells = microphonePatternBox.isVisible() ? 1
+                           : (leftPatternBox.isVisible() ? 2 : 0);
+    const int totalCells = 1 + (1 + patternCells) + 3;
+    const int cellWidth = juce::jmax(1, topRow.getWidth() / totalCells);
+
+    const auto placeGroup = [&topRow, cellWidth](int cells, juce::Label& caption)
     {
-        const int cellWidth = choices.getWidth() / remainingControls;
-        --remainingControls;
-        return choices.removeFromLeft(cellWidth).reduced(4, 0);
+        auto group = topRow.removeFromLeft(cellWidth * cells);
+        caption.setBounds(group.removeFromTop(kCaptionHeight).reduced(4, 0));
+        return group;
     };
 
-    for (int i = 0; i < 5; ++i)
-    {
-        if (!choiceBoxes[i]->isVisible())
-            continue;
+    auto sourceRow = placeGroup(1, sourceGroupLabel);
+    placeChoice(sourceRow, cellWidth, outputTypeLabel, outputTypeBox);
 
-        auto cell = takeControlCell();
-        choiceLabels[i]->setBounds(cell.removeFromTop(14));
-        choiceBoxes[i]->setBounds(cell);
-    }
+    auto listenerRow = placeGroup(1 + patternCells, listenerGroupLabel);
+    placeChoice(listenerRow, cellWidth, inputTypeLabel, inputTypeBox);
+    if (microphonePatternBox.isVisible())
+        placeChoice(listenerRow, cellWidth, microphonePatternLabel, microphonePatternBox);
+    if (leftPatternBox.isVisible())
+        placeChoice(listenerRow, cellWidth, leftPatternLabel, leftPatternBox);
+    if (rightPatternBox.isVisible())
+        placeChoice(listenerRow, cellWidth, rightPatternLabel, rightPatternBox);
 
-    showRayPathsButton.setBounds(takeControlCell());
-    auto densityCell = takeControlCell();
-    rayDensityLabel.setBounds(densityCell.removeFromTop(14));
-    rayDensitySlider.setBounds(densityCell);
-    auto bouncesCell = takeControlCell();
-    rayBouncesLabel.setBounds(bouncesCell.removeFromTop(14));
-    rayBouncesSlider.setBounds(bouncesCell);
-    area.removeFromTop(6);
+    auto raytracingRow = placeGroup(3, raytracingGroupLabel);
+    showRayPathsButton.setBounds(raytracingRow.removeFromLeft(cellWidth).reduced(4, 0)
+                                     .withTrimmedTop(kCaptionHeight));
+    placeChoice(raytracingRow, cellWidth, rayDensityLabel, rayDensitySlider);
+    placeChoice(raytracingRow, cellWidth, rayBouncesLabel, rayBouncesSlider);
+
+    area.removeFromTop(kTopRowGap);
 
     const int masterWidth = 190;
     const int sideWidth = (area.getWidth() - masterWidth) / 2;
 
-    layoutObjectPanel(sourcePanel, area.removeFromLeft(sideWidth).reduced(6, 0));
+    auto sourceArea = area.removeFromLeft(sideWidth).reduced(6, 0);
+    if (showingPaSources())
+    {
+        // PA sources: the two speaker channels sit in one row below the shared panel.
+        auto paArea = sourceArea.removeFromBottom(kPaChannelHeight);
+        const int half = paArea.getWidth() / 2;
+        layoutPaChannel(paSourceLeft, paArea.removeFromLeft(half).reduced(2, 0));
+        layoutPaChannel(paSourceRight, paArea.reduced(2, 0));
+    }
+    layoutObjectPanel(sourcePanel, sourceArea);
 
     auto masterArea = area.removeFromLeft(masterWidth).reduced(6, 0);
+    roomGroupLabel.setBounds(masterArea.removeFromTop(kCaptionHeight));
     constexpr int masterControlsHeight = 132;
     masterArea.removeFromTop(std::max(0, (masterArea.getHeight() - masterControlsHeight) / 2));
     const int masterCellWidth = masterArea.getWidth() / 3;
     auto inputCell = masterArea.removeFromLeft(masterCellWidth).reduced(1, 0);
-    inputGainLabel.setBounds(inputCell.removeFromTop(16));
-    inputGainEditor.setBounds(inputCell.removeFromBottom(20));
+    inputGainLabel.setBounds(inputCell.removeFromTop(kCaptionHeight));
+    inputGainEditor.setBounds(inputCell.removeFromBottom(kMinClickTarget));
     inputGainSlider.setBounds(inputCell);
 
     auto dryWetCell = masterArea.removeFromLeft(masterCellWidth).reduced(1, 0);
-    dryWetLabel.setBounds(dryWetCell.removeFromTop(16));
+    dryWetLabel.setBounds(dryWetCell.removeFromTop(kCaptionHeight));
     dryWetSlider.setBounds(dryWetCell);
 
     auto outputCell = masterArea.reduced(1, 0);
-    gainLabel.setBounds(outputCell.removeFromTop(16));
-    outputGainEditor.setBounds(outputCell.removeFromBottom(20));
+    gainLabel.setBounds(outputCell.removeFromTop(kCaptionHeight));
+    outputGainEditor.setBounds(outputCell.removeFromBottom(kMinClickTarget));
     gainSlider.setBounds(outputCell);
 
-    layoutObjectPanel(listenerPanel, area.reduced(6, 0));
+    auto listenerArea = area.reduced(6, 0);
+    if (showingPaListeners())
+    {
+        auto paArea = listenerArea.removeFromBottom(kPaChannelHeight);
+        const int half = paArea.getWidth() / 2;
+        layoutPaChannel(paListenerLeft, paArea.removeFromLeft(half).reduced(2, 0));
+        layoutPaChannel(paListenerRight, paArea.reduced(2, 0));
+    }
+    layoutObjectPanel(listenerPanel, listenerArea);
 }
 
 void BottomControlBar::updateInputMenuAvailability()
@@ -436,7 +711,7 @@ void BottomControlBar::commitGainEntry(juce::TextEditor& editor, juce::Slider& s
 
 void BottomControlBar::layoutObjectPanel(ObjectPanel& panel, juce::Rectangle<int> bounds)
 {
-    auto headerArea = bounds.removeFromTop(20);
+    auto headerArea = bounds.removeFromTop(24);
     panel.positionToggle.setBounds(headerArea.removeFromRight(102));
     headerArea.removeFromRight(4);
     panel.header.setBounds(headerArea);
@@ -451,7 +726,7 @@ void BottomControlBar::layoutObjectPanel(ObjectPanel& panel, juce::Rectangle<int
         if (panel.positionExpanded)
         {
             auto row = bounds.removeFromTop(30);
-            axisLabels[i]->setBounds(row.removeFromLeft(22));
+            axisLabels[i]->setBounds(row.removeFromLeft(44));
             axisSliders[i]->setBounds(row);
         }
     }
@@ -483,7 +758,7 @@ void BottomControlBar::layoutObjectPanel(ObjectPanel& panel, juce::Rectangle<int
     for (int i = 0; i < count; ++i)
     {
         auto cell = bounds.removeFromLeft(cellWidth).reduced(2, 0);
-        labels[i]->setBounds(cell.removeFromTop(16));
+        labels[i]->setBounds(cell.removeFromTop(kCaptionHeight));
         sliders[i]->setBounds(cell);
     }
 }

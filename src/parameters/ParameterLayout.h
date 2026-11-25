@@ -40,6 +40,30 @@ inline constexpr const char* dstEqLowGain = "dst_eq_low_gain";
 inline constexpr const char* dstEqMidGain = "dst_eq_mid_gain";
 inline constexpr const char* dstEqMidFreq = "dst_eq_mid_freq";
 inline constexpr const char* dstEqHighGain = "dst_eq_high_gain";
+
+// Per-channel placement, used only when Output Type is PA (left/right speaker).
+inline constexpr const char* paSrcLeftX = "pa_src_left_x";
+inline constexpr const char* paSrcLeftY = "pa_src_left_y";
+inline constexpr const char* paSrcLeftZ = "pa_src_left_z";
+inline constexpr const char* paSrcLeftYaw = "pa_src_left_yaw";
+inline constexpr const char* paSrcLeftPitch = "pa_src_left_pitch";
+inline constexpr const char* paSrcRightX = "pa_src_right_x";
+inline constexpr const char* paSrcRightY = "pa_src_right_y";
+inline constexpr const char* paSrcRightZ = "pa_src_right_z";
+inline constexpr const char* paSrcRightYaw = "pa_src_right_yaw";
+inline constexpr const char* paSrcRightPitch = "pa_src_right_pitch";
+
+// Per-channel placement, used only when Input Type is PA (left/right microphone).
+inline constexpr const char* paDstLeftX = "pa_dst_left_x";
+inline constexpr const char* paDstLeftY = "pa_dst_left_y";
+inline constexpr const char* paDstLeftZ = "pa_dst_left_z";
+inline constexpr const char* paDstLeftYaw = "pa_dst_left_yaw";
+inline constexpr const char* paDstLeftPitch = "pa_dst_left_pitch";
+inline constexpr const char* paDstRightX = "pa_dst_right_x";
+inline constexpr const char* paDstRightY = "pa_dst_right_y";
+inline constexpr const char* paDstRightZ = "pa_dst_right_z";
+inline constexpr const char* paDstRightYaw = "pa_dst_right_yaw";
+inline constexpr const char* paDstRightPitch = "pa_dst_right_pitch";
 } // namespace ParamIDs
 
 namespace StateProps
@@ -81,6 +105,19 @@ struct ParameterPointers
     std::atomic<float>* dstEqMidGainDb = nullptr;
     std::atomic<float>* dstEqMidFreqHz = nullptr;
     std::atomic<float>* dstEqHighGainDb = nullptr;
+
+    // PA per-channel placement (index 0 = left, 1 = right).
+    std::atomic<float>* paSrcX[2] {};
+    std::atomic<float>* paSrcY[2] {};
+    std::atomic<float>* paSrcZ[2] {};
+    std::atomic<float>* paSrcYawDeg[2] {};
+    std::atomic<float>* paSrcPitchDeg[2] {};
+
+    std::atomic<float>* paDstX[2] {};
+    std::atomic<float>* paDstY[2] {};
+    std::atomic<float>* paDstZ[2] {};
+    std::atomic<float>* paDstYawDeg[2] {};
+    std::atomic<float>* paDstPitchDeg[2] {};
 
     void bind(juce::AudioProcessorValueTreeState& apvts) noexcept;
 };

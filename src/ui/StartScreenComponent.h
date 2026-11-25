@@ -47,6 +47,7 @@ private:
     juce::Rectangle<int> dropZoneBounds;
     bool isDragOver { false };
 
+    juce::TextButton browseButton;
     std::vector<std::unique_ptr<juce::TextButton>> presetButtons;
     std::unique_ptr<juce::FileChooser> fileChooser;
 

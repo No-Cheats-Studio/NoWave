@@ -49,6 +49,7 @@ private:
     void initObjectPanel(ObjectPanel& panel,
                          juce::AudioProcessorValueTreeState& apvts,
                          const juce::String& title,
+                         const juce::String& roleName,
                          juce::Colour accent,
                          const char* idX,
                          const char* idY,
@@ -58,14 +59,40 @@ private:
                          const char* idLow,
                          const char* idMid,
                          const char* idMidFreq,
-                         const char* idHigh);
+                         const char* idHigh,
+                         int focusBase);
 
     void layoutObjectPanel(ObjectPanel& panel, juce::Rectangle<int> bounds);
     void updateInputMenuAvailability();
+    void updatePaPanelsAvailability();
+
+    // Per-channel PA placement, shown only for the matching PA type.
+    struct PaChannel
+    {
+        juce::Label title;
+        juce::Slider x, y, z, yaw, pitch;
+        juce::Label xLabel, yLabel, zLabel, yawLabel, pitchLabel;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> xAtt, yAtt, zAtt,
+            yawAtt, pitchAtt;
+    };
+    void initPaChannel(PaChannel& channel, juce::AudioProcessorValueTreeState& apvts,
+                       const juce::String& title, juce::Colour accent, int focusBase,
+                       const char* idX, const char* idY, const char* idZ,
+                       const char* idYaw, const char* idPitch);
+    void layoutPaChannel(PaChannel& channel, juce::Rectangle<int> bounds);
+    bool showingPaSources() const;
+    bool showingPaListeners() const;
+
+    PaChannel paSourceLeft, paSourceRight, paListenerLeft, paListenerRight;
 
     ObjectPanel sourcePanel;
     ObjectPanel listenerPanel;
     std::function<void()> onLayoutChanged;
+
+    juce::Label sourceGroupLabel;
+    juce::Label listenerGroupLabel;
+    juce::Label raytracingGroupLabel;
+    juce::Label roomGroupLabel;
 
     juce::TextEditor inputGainEditor;
     juce::Slider inputGainSlider;

@@ -1,7 +1,16 @@
 #include "ui/StartScreenComponent.h"
+#include "ui/Palette.h"
 
 namespace nowave
 {
+namespace
+{
+// Bottom part of the drop zone: subtitle line plus browse button.
+constexpr int kDropZoneFooterHeight = 64;
+constexpr int kDropZoneButtonAreaHeight = 40;
+constexpr int kMinClickTarget = 24;
+} // namespace
+
 StartScreenComponent::StartScreenComponent(FileSelectedCallback onFileSelected,
                                            PresetSelectedCallback onPresetSelected)
     : fileCallback(std::move(onFileSelected)),
@@ -9,19 +18,19 @@ StartScreenComponent::StartScreenComponent(FileSelectedCallback onFileSelected,
 {
     titleLabel.setText("NoWave", juce::dontSendNotification);
     titleLabel.setFont(juce::FontOptions(28.0f, juce::Font::bold));
-    titleLabel.setColour(juce::Label::textColourId, juce::Colour(0xfff1f5f9));
+    titleLabel.setColour(juce::Label::textColourId, palette::textStrong);
     titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(titleLabel);
 
     subtitleLabel.setText("Real-Time GPU Raytraced Acoustic Reverb", juce::dontSendNotification);
     subtitleLabel.setFont(juce::FontOptions(14.0f));
-    subtitleLabel.setColour(juce::Label::textColourId, juce::Colour(0xff94a3b8));
+    subtitleLabel.setColour(juce::Label::textColourId, palette::textSubtle);
     subtitleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(subtitleLabel);
 
-    presetHeaderLabel.setText("Or choose a built-in room preset:", juce::dontSendNotification);
+    presetHeaderLabel.setText("Or start with a built-in room preset:", juce::dontSendNotification);
     presetHeaderLabel.setFont(juce::FontOptions(13.5f, juce::Font::bold));
-    presetHeaderLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcbd5e1));
+    presetHeaderLabel.setColour(juce::Label::textColourId, palette::textLabel);
     presetHeaderLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(presetHeaderLabel);
 
@@ -30,13 +39,28 @@ StartScreenComponent::StartScreenComponent(FileSelectedCallback onFileSelected,
     statusLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(statusLabel);
 
+    browseButton.setButtonText("Browse for a file...");
+    browseButton.setColour(juce::TextButton::buttonColourId, palette::surfaceRaised);
+    browseButton.setColour(juce::TextButton::buttonOnColourId, palette::surfaceActive);
+    browseButton.setColour(juce::TextButton::textColourOffId, palette::text);
+    browseButton.setTooltip("Open a file dialog to choose a .obj or .fbx room file.");
+    browseButton.setWantsKeyboardFocus(true);
+    browseButton.onClick = [this]
+    {
+        openFileBrowser();
+    };
+    addAndMakeVisible(browseButton);
+
     for (const auto& info : RoomPresets::getAll())
     {
         auto btn = std::make_unique<juce::TextButton>(
             juce::String(info.displayName) + "\n" + juce::String(info.description));
-        btn->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff1e2430));
-        btn->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff2b3547));
-        btn->setColour(juce::TextButton::textColourOffId, juce::Colour(0xffe2e8f0));
+        btn->setColour(juce::TextButton::buttonColourId, palette::surfaceRaised);
+        btn->setColour(juce::TextButton::buttonOnColourId, palette::surfaceActive);
+        btn->setColour(juce::TextButton::textColourOffId, palette::text);
+        btn->setTooltip("Load the built-in room preset \"" + juce::String(info.displayName)
+                        + "\" without a file.");
+        btn->setWantsKeyboardFocus(true);
         const RoomPresetId presetId = info.id;
         btn->onClick = [this, presetId]()
         {
@@ -51,17 +75,17 @@ StartScreenComponent::StartScreenComponent(FileSelectedCallback onFileSelected,
 void StartScreenComponent::setStatusMessage(const juce::String& message, bool isError)
 {
     statusLabel.setColour(juce::Label::textColourId,
-                          isError ? juce::Colour(0xfff87171) : juce::Colour(0xff94a3b8));
+                          isError ? palette::error : palette::textSubtle);
     statusLabel.setText(message, juce::dontSendNotification);
 }
 
 void StartScreenComponent::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff11141a));
+    g.fillAll(palette::background);
 
     const auto dz = dropZoneBounds.toFloat();
-    const juce::Colour fillCol = isDragOver ? juce::Colour(0xff1d2b3f) : juce::Colour(0xff171c24);
-    const juce::Colour borderCol = isDragOver ? juce::Colour(0xff38bdf8) : juce::Colour(0xff334155);
+    const juce::Colour fillCol = isDragOver ? palette::dropHighlight : palette::surface;
+    const juce::Colour borderCol = isDragOver ? palette::accentSky : palette::border;
 
     g.setColour(fillCol);
     g.fillRoundedRectangle(dz, 12.0f);
@@ -74,16 +98,17 @@ void StartScreenComponent::paint(juce::Graphics& g)
     juce::PathStrokeType(2.0f).createDashedStroke(dashedPath, borderPath, dashLengths, 2);
     g.fillPath(dashedPath);
 
-    g.setColour(juce::Colour(0xffe2e8f0));
+    g.setColour(palette::text);
     g.setFont(juce::FontOptions(17.0f, juce::Font::bold));
-    g.drawText("Drop .OBJ or .FBX 3D Room File Here",
-               dropZoneBounds.withTrimmedBottom(28),
+    g.drawText("Drop a 3D room file here",
+               dropZoneBounds.withTrimmedBottom(kDropZoneFooterHeight),
                juce::Justification::centred);
 
-    g.setColour(juce::Colour(0xff94a3b8));
+    g.setColour(palette::textSubtle);
     g.setFont(juce::FontOptions(13.0f));
-    g.drawText("or click anywhere in this box to browse",
-               dropZoneBounds.withTrimmedTop(28),
+    g.drawText("Supported formats: .obj and .fbx. You can also click anywhere in this box.",
+               dropZoneBounds.withTrimmedTop(dropZoneBounds.getHeight() - kDropZoneFooterHeight)
+                   .withTrimmedBottom(kDropZoneButtonAreaHeight),
                juce::Justification::centred);
 }
 
@@ -99,22 +124,30 @@ void StartScreenComponent::resized()
     const int dropHeight = juce::jmin(200, juce::jmax(130, area.getHeight() - 180));
     dropZoneBounds = area.removeFromTop(dropHeight).withSizeKeepingCentre(dropWidth, dropHeight);
 
+    browseButton.setBounds(dropZoneBounds.withTrimmedTop(dropZoneBounds.getHeight() - kDropZoneButtonAreaHeight)
+                               .withSizeKeepingCentre(200, kMinClickTarget + 4));
+
     area.removeFromTop(18);
     presetHeaderLabel.setBounds(area.removeFromTop(24));
     area.removeFromTop(10);
 
     const int numPresets = static_cast<int>(presetButtons.size());
-    if (numPresets > 0)
+    constexpr int columns = 3;
+    constexpr int gap = 12;
+    constexpr int rowHeight = 68;
+    const int rows = (numPresets + columns - 1) / columns;
+    auto grid = area.removeFromTop(rows * rowHeight + juce::jmax(0, rows - 1) * gap)
+                    .withSizeKeepingCentre(juce::jmin(660, area.getWidth()),
+                                           rows * rowHeight + juce::jmax(0, rows - 1) * gap);
+    const int btnWidth = (grid.getWidth() - gap * (columns - 1)) / columns;
+    for (int i = 0; i < numPresets; ++i)
     {
-        auto row = area.removeFromTop(68).withSizeKeepingCentre(juce::jmin(660, area.getWidth()), 68);
-        const int gap = 12;
-        const int btnWidth = (row.getWidth() - gap * (numPresets - 1)) / numPresets;
-        for (int i = 0; i < numPresets; ++i)
-        {
-            presetButtons[static_cast<size_t>(i)]->setBounds(row.removeFromLeft(btnWidth));
-            if (i < numPresets - 1)
-                row.removeFromLeft(gap);
-        }
+        const int row = i / columns;
+        const int column = i % columns;
+        presetButtons[static_cast<size_t>(i)]->setBounds(
+            grid.getX() + column * (btnWidth + gap),
+            grid.getY() + row * (rowHeight + gap),
+            btnWidth, rowHeight);
     }
 
     area.removeFromTop(14);

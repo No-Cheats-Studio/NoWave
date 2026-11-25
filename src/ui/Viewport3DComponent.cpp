@@ -1,4 +1,5 @@
 #include "ui/Viewport3DComponent.h"
+#include "ui/Palette.h"
 
 #include <algorithm>
 #include <cmath>
@@ -12,6 +13,9 @@ namespace nowave
 {
 namespace
 {
+constexpr float kCameraSpeed = 2.5f;     // metres per second
+constexpr float kFastCameraSpeed = 7.5f; // metres per second while Shift is held
+
 constexpr const char* kVertexShader = R"(
 #version 330 core
 layout (location = 0) in vec3 aPosition;
@@ -60,6 +64,23 @@ float hash21(vec2 p)
     return fract(p.x * p.y);
 }
 
+float valueNoise(vec2 p)
+{
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    float a = hash21(i);
+    float b = hash21(i + vec2(1.0, 0.0));
+    float c = hash21(i + vec2(0.0, 1.0));
+    float d = hash21(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+float fbm(vec2 p)
+{
+    return 0.6 * valueNoise(p) + 0.4 * valueNoise(p * 2.7 + vec2(3.1, 1.7));
+}
+
 vec2 surfaceUV(vec3 position, vec3 normal)
 {
     vec3 n = abs(normalize(normal));
@@ -70,56 +91,126 @@ vec2 surfaceUV(vec3 position, vec3 normal)
     return position.xy;
 }
 
+// uv is in metres (see surfaceUV), so all scales below are real-world sizes.
 vec3 proceduralMaterial(int type, vec2 uv)
 {
     if (type == 1)
     {
-        float noise = hash21(floor(uv * 7.0));
-        float vein = smoothstep(0.94, 0.99,
-                                abs(sin((uv.x + uv.y * 0.37) * 2.4 +
-                                        sin(uv.y * 0.8) * 0.7)));
-        return mix(vec3(0.30, 0.34, 0.38), vec3(0.56, 0.58, 0.60),
-                   0.28 + noise * 0.32 + vein * 0.25);
+        // Ashlar masonry: 0.60 x 0.30 m blocks, staggered courses, 12 mm joints
+        vec2 blockSize = vec2(0.60, 0.30);
+        vec2 blockUv = uv / blockSize;
+        blockUv.x += mod(floor(blockUv.y), 2.0) * 0.5;
+        vec2 cell = floor(blockUv);
+        vec2 local = fract(blockUv);
+        float edge = min(min(local.x, 1.0 - local.x) * blockSize.x,
+                         min(local.y, 1.0 - local.y) * blockSize.y);
+        float joint = 1.0 - smoothstep(0.004, 0.009, edge);
+        float tone = hash21(cell + 17.0);
+        float grain = fbm(uv * 8.0);
+        vec3 stone = mix(vec3(0.33, 0.34, 0.36), vec3(0.62, 0.62, 0.60),
+                         tone * 0.5 + grain * 0.35);
+        return mix(stone, vec3(0.50, 0.49, 0.47), joint * 0.85);
     }
     if (type == 2)
     {
-        float mullion = step(0.94, fract(uv.x * 0.75)) +
-                        step(0.95, fract(uv.y * 0.55));
-        float reflection = 0.5 + 0.5 * sin(uv.x * 1.8 + uv.y * 0.35);
-        vec3 glass = mix(vec3(0.10, 0.33, 0.43), vec3(0.40, 0.69, 0.77),
-                         reflection * 0.45);
-        return mix(glass, vec3(0.055, 0.12, 0.16), clamp(mullion, 0.0, 1.0));
+        // Curtain-wall panes 1.35 x 1.80 m with thin aluminium frames
+        vec2 paneSize = vec2(1.35, 1.80);
+        vec2 pane = fract(uv / paneSize);
+        vec2 frameDist = min(pane, 1.0 - pane) * paneSize;
+        float frame = 1.0 - smoothstep(0.02, 0.035, min(frameDist.x, frameDist.y));
+        float sky = 0.5 + 0.5 * sin(uv.x * 0.9 + uv.y * 0.35);
+        float haze = fbm(uv * 0.7);
+        vec3 glass = mix(vec3(0.08, 0.25, 0.33), vec3(0.32, 0.55, 0.63),
+                         sky * 0.4 + haze * 0.3);
+        return mix(glass, vec3(0.07, 0.09, 0.10), frame);
     }
     if (type == 3)
     {
-        vec2 brickUv = uv * vec2(1.7, 3.2);
-        float row = floor(brickUv.y);
-        vec2 local = vec2(fract(brickUv.x + mod(row, 2.0) * 0.5),
-                          fract(brickUv.y));
-        if (min(min(local.x, 1.0 - local.x), min(local.y, 1.0 - local.y)) < 0.045)
-            return vec3(0.30, 0.29, 0.27);
-        float variation = hash21(floor(brickUv));
-        return mix(vec3(0.34, 0.12, 0.075), vec3(0.62, 0.27, 0.16), variation);
+        // Running bond: 215 x 65 mm bricks with 10 mm mortar joints
+        vec2 brickSize = vec2(0.215, 0.065);
+        vec2 brickUv = uv / brickSize;
+        brickUv.x += mod(floor(brickUv.y), 2.0) * 0.5;
+        vec2 cell = floor(brickUv);
+        vec2 local = fract(brickUv);
+        vec2 edgeDist = min(local, 1.0 - local) * brickSize;
+        float mortar = 1.0 - smoothstep(0.004, 0.008, min(edgeDist.x, edgeDist.y));
+        float tone = hash21(cell + 3.7);
+        float fleck = valueNoise(uv * 160.0);
+        vec3 fired = mix(vec3(0.42, 0.17, 0.09), vec3(0.64, 0.31, 0.19),
+                         tone * 0.7 + fleck * 0.3);
+        return mix(fired, vec3(0.60, 0.58, 0.54), mortar);
     }
     if (type == 4)
     {
-        float seam = step(0.965, fract(uv.x * 0.85));
-        float grain = 0.5 + 0.5 * sin(uv.y * 42.0 + sin(uv.x * 2.5) * 3.0);
-        vec3 wood = mix(vec3(0.27, 0.12, 0.055), vec3(0.63, 0.34, 0.14), grain);
-        return mix(wood, vec3(0.12, 0.055, 0.025), seam * 0.8);
+        // Floor-style planks, 0.14 m wide with fine seams and lengthwise grain
+        float plankWidth = 0.14;
+        float across = fract(uv.x / plankWidth);
+        float seam = 1.0 - smoothstep(0.0, 0.0025, min(across, 1.0 - across) * plankWidth);
+        float plankTone = hash21(vec2(floor(uv.x / plankWidth), 5.0));
+        float streak = valueNoise(vec2(uv.x * 140.0, uv.y * 2.5));
+        float figure = fbm(vec2(uv.x * 20.0, uv.y * 0.8));
+        vec3 wood = mix(vec3(0.30, 0.16, 0.08), vec3(0.58, 0.36, 0.19),
+                        plankTone * 0.5 + streak * 0.3 + figure * 0.2);
+        return mix(wood, vec3(0.14, 0.07, 0.035), seam * 0.9);
     }
     if (type == 5)
     {
-        float pleat = 0.62 + 0.38 * cos(uv.x * 8.0);
-        float weave = hash21(floor(uv * 35.0)) * 0.08;
-        return vec3(0.37, 0.105, 0.16) * (pleat + weave);
+        // Velour: vertical folds about 0.12 m apart with a fine pile texture
+        float fold = 0.5 + 0.5 * cos(uv.x * 52.0);
+        float shade = 0.55 + 0.45 * fold;
+        float pile = valueNoise(uv * vec2(110.0, 35.0));
+        return vec3(0.36, 0.08, 0.13) * shade * (0.88 + 0.18 * pile);
     }
     if (type == 6)
     {
-        float fibers = hash21(floor(uv * 48.0));
-        float strands = 0.5 + 0.5 * sin(uv.x * 58.0 + uv.y * 6.0);
-        return mix(vec3(0.47, 0.35, 0.16), vec3(0.84, 0.69, 0.38),
-                   fibers * 0.42 + strands * 0.38);
+        // Mineral wool: irregular fibres at the centimetre scale, subtle tonal drift
+        float tone = fbm(uv * 3.0);
+        float fibres = valueNoise(uv * vec2(70.0, 45.0));
+        float strands = valueNoise(uv * vec2(150.0, 100.0));
+        vec3 base = mix(vec3(0.55, 0.46, 0.28), vec3(0.78, 0.68, 0.44), tone);
+        return base * (0.80 + 0.14 * fibres + 0.08 * strands);
+    }
+    if (type == 7)
+    {
+        // Poured concrete: 2.4 x 1.2 m formwork panels with tie holes and surface mottling
+        vec2 panel = fract(uv / vec2(2.4, 1.2));
+        vec2 panelEdge = min(panel, 1.0 - panel) * vec2(2.4, 1.2);
+        float seam = 1.0 - smoothstep(0.003, 0.008, min(panelEdge.x, panelEdge.y));
+        float mottling = fbm(uv * 2.0);
+        float pores = step(0.93, valueNoise(uv * 60.0));
+        vec3 concrete = mix(vec3(0.38, 0.39, 0.40), vec3(0.58, 0.58, 0.57), mottling);
+        concrete *= 1.0 - 0.18 * pores;
+        return mix(concrete, vec3(0.24, 0.25, 0.26), seam * 0.8);
+    }
+    if (type == 8)
+    {
+        // Carpet: dense pile at the millimetre scale, subtle large-scale tonal drift
+        float pile = valueNoise(uv * 220.0);
+        float weave = 0.5 + 0.5 * sin(uv.x * 900.0) * sin(uv.y * 900.0);
+        float drift = fbm(uv * 1.5);
+        vec3 base = mix(vec3(0.20, 0.23, 0.30), vec3(0.28, 0.32, 0.40), drift);
+        return base * (0.80 + 0.14 * pile + 0.08 * weave);
+    }
+    if (type == 9)
+    {
+        // Painted plaster: near-flat off-white with faint trowel marks
+        float trowel = fbm(uv * 1.1);
+        float grain = valueNoise(uv * 90.0);
+        vec3 paint = mix(vec3(0.78, 0.76, 0.71), vec3(0.86, 0.84, 0.79), trowel);
+        return paint * (0.97 + 0.04 * grain);
+    }
+    if (type == 10)
+    {
+        // Suspended ceiling: 0.60 x 0.60 m tiles in a metal grid, fine perforation
+        vec2 tile = fract(uv / 0.6);
+        vec2 gridDist = min(tile, 1.0 - tile) * 0.6;
+        float grid = 1.0 - smoothstep(0.006, 0.012, min(gridDist.x, gridDist.y));
+        vec2 hole = fract(uv * 55.0) - 0.5;
+        float perforation = 1.0 - smoothstep(0.10, 0.16, length(hole));
+        float tone = hash21(floor(uv / 0.6) + 11.0);
+        vec3 board = mix(vec3(0.80, 0.80, 0.77), vec3(0.88, 0.88, 0.85), tone);
+        board *= 1.0 - 0.22 * perforation;
+        return mix(board, vec3(0.62, 0.64, 0.66), grid);
     }
     return vec3(0.42, 0.46, 0.52);
 }
@@ -157,6 +248,12 @@ struct GLVertex
     float surfaceType { 0.0f };
     float rayEnergy { 1.0f };
 };
+
+float paValue(std::atomic<float>* const* pointers, int channel, float fallback)
+{
+    const auto* value = pointers[channel];
+    return value != nullptr ? value->load() : fallback;
+}
 } // namespace
 
 Viewport3DComponent::Viewport3DComponent(const ParameterPointers& paramPointers,
@@ -167,21 +264,21 @@ Viewport3DComponent::Viewport3DComponent(const ParameterPointers& paramPointers,
 {
     roomNameLabel.setText("No Room Loaded", juce::dontSendNotification);
     roomNameLabel.setFont(juce::FontOptions(14.0f, juce::Font::bold));
-    roomNameLabel.setColour(juce::Label::textColourId, juce::Colour(0xffe2e8f0));
-    roomNameLabel.setColour(juce::Label::backgroundColourId, juce::Colour(0xaa11141a));
+    roomNameLabel.setColour(juce::Label::textColourId, palette::text);
+    roomNameLabel.setColour(juce::Label::backgroundColourId, palette::overlay);
     addAndMakeVisible(roomNameLabel);
 
     cameraHintLabel.setText("Hold LMB: WASD move, drag look, Space up, Ctrl down",
                             juce::dontSendNotification);
     cameraHintLabel.setFont(juce::FontOptions(11.5f));
-    cameraHintLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcbd5e1));
-    cameraHintLabel.setColour(juce::Label::backgroundColourId, juce::Colour(0xaa11141a));
+    cameraHintLabel.setColour(juce::Label::textColourId, palette::textLabel);
+    cameraHintLabel.setColour(juce::Label::backgroundColourId, palette::overlay);
     cameraHintLabel.setJustificationType(juce::Justification::centred);
     cameraHintLabel.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(cameraHintLabel);
 
-    changeRoomButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff1e293b));
-    changeRoomButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xffe2e8f0));
+    changeRoomButton.setColour(juce::TextButton::buttonColourId, palette::viewportButton);
+    changeRoomButton.setColour(juce::TextButton::textColourOffId, palette::text);
     changeRoomButton.onClick = std::move(onChangeRoomRequested);
     addAndMakeVisible(changeRoomButton);
 
@@ -294,7 +391,9 @@ void Viewport3DComponent::timerCallback()
     const float length = glm::length(movement);
     if (length > 0.0f)
     {
-        movement *= (2.5f / 60.0f) / length;
+        const bool fast = juce::ModifierKeys::getCurrentModifiers().isShiftDown();
+        const float speedMetresPerSecond = fast ? kFastCameraSpeed : kCameraSpeed;
+        movement *= (speedMetresPerSecond / 60.0f) / length;
         cameraX.store(cameraX.load() + movement.x);
         cameraY.store(cameraY.load() + movement.y);
         cameraZ.store(cameraZ.load() + movement.z);
@@ -645,7 +744,7 @@ void Viewport3DComponent::renderOpenGL()
     const int height = std::max(1, static_cast<int>(static_cast<float>(getHeight()) * scale));
 
     glViewport(0, 0, width, height);
-    glClearColor(0.06f, 0.075f, 0.10f, 1.0f);
+    const glm::vec3 clear = palette::rgb(palette::argb::background);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
@@ -684,7 +783,7 @@ void Viewport3DComponent::renderOpenGL()
         glDrawArrays(GL_TRIANGLES, 0, roomVertexCount);
 
         // Subtle wireframe overlay for spatial depth
-        glUniform3f(uColorLoc, 0.45f, 0.62f, 0.85f);
+        const glm::vec3 wire = palette::rgb(palette::argb::roomWireframe);
         glUniform1f(uAlphaLoc, 0.45f);
         glUniform1i(uUseLightingLoc, 0);
         glUniform1i(uUseMaterialTextureLoc, 0);
@@ -704,7 +803,7 @@ void Viewport3DComponent::renderOpenGL()
             const glm::mat4 identity(1.0f);
             glUniformMatrix4fv(uMvpLoc, 1, GL_FALSE, glm::value_ptr(vp));
             glUniformMatrix4fv(uModelLoc, 1, GL_FALSE, glm::value_ptr(identity));
-            glUniform3f(uColorLoc, 0.20f, 0.88f, 1.0f);
+            const glm::vec3 rayColour = palette::rgb(palette::argb::rayPath);
             glUniform1f(uAlphaLoc, 0.9f);
             glUniform1i(uUseLightingLoc, 0);
             glUniform1i(uUseMaterialTextureLoc, 0);
@@ -792,18 +891,28 @@ void Viewport3DComponent::renderOpenGL()
         for (int source = 0; source < sourceCount; ++source)
         {
             const float side = source == 0 ? -1.0f : 1.0f;
-            const float offset = outputType == static_cast<int>(OutputType::PA) ? 0.15f
-                               : sourceCount == 2 ? 0.06f : 0.0f;
+            const bool paChannel = outputType == static_cast<int>(OutputType::PA);
+            const float offset = sourceCount == 2 && !paChannel ? 0.06f : 0.0f;
             const float yawOffset = outputType == static_cast<int>(OutputType::SpeakerBox)
                                         ? side * 30.0f : 0.0f;
             const glm::vec3 markerColor = source == 0
-                                              ? glm::vec3(0.98f, 0.48f, 0.20f)
-                                              : glm::vec3(1.0f, 0.70f, 0.24f);
+                                              ? palette::rgb(palette::argb::source)
+                                              : palette::rgb(palette::argb::sourceAlt);
             const glm::vec3 directionColor = source == 0
-                                                 ? glm::vec3(1.0f, 0.84f, 0.34f)
-                                                 : glm::vec3(1.0f, 0.55f, 0.14f);
-            drawObject(sourceCenter + sourceRight * (side * offset),
-                       sourceYaw + yawOffset, sourcePitch, markerColor,
+                                                 ? palette::rgb(palette::argb::sourceDirection)
+                                                 : palette::rgb(palette::argb::source);
+            glm::vec3 position = sourceCenter + sourceRight * (side * offset);
+            float yaw = sourceYaw + yawOffset;
+            float pitch = sourcePitch;
+            if (paChannel)
+            {
+                position = glm::vec3(paValue(params.paSrcX, source, 0.0f),
+                                     paValue(params.paSrcY, source, 1.5f),
+                                     paValue(params.paSrcZ, source, 0.0f));
+                yaw = paValue(params.paSrcYawDeg, source, 90.0f);
+                pitch = paValue(params.paSrcPitchDeg, source, 0.0f);
+            }
+            drawObject(position, yaw, pitch, markerColor,
                        directionColor, sourceCount == 1 ? 1.0f : 0.55f);
         }
 
@@ -811,18 +920,29 @@ void Viewport3DComponent::renderOpenGL()
         for (int receiver = 0; receiver < receiverCount; ++receiver)
         {
             const float side = receiver == 0 ? -1.0f : 1.0f;
+            const bool paChannel = inputType == static_cast<int>(InputType::PA);
             const float offset = inputType == static_cast<int>(InputType::Ears) ? 0.09f
-                               : receiverCount == 2 ? 0.15f : 0.0f;
+                               : receiverCount == 2 && !paChannel ? 0.15f : 0.0f;
             const float yawOffset = inputType == static_cast<int>(InputType::Ears)
                                         ? side * 10.0f : 0.0f;
             const glm::vec3 markerColor = receiver == 0
-                                              ? glm::vec3(0.22f, 0.78f, 0.96f)
-                                              : glm::vec3(0.24f, 0.56f, 1.0f);
+                                              ? palette::rgb(palette::argb::receiver)
+                                              : palette::rgb(palette::argb::receiverAlt);
             const glm::vec3 directionColor = receiver == 0
-                                                 ? glm::vec3(0.55f, 1.0f, 1.0f)
-                                                 : glm::vec3(0.44f, 0.72f, 1.0f);
-            drawObject(receiverCenter + receiverRight * (side * offset),
-                       receiverYaw + yawOffset, receiverPitch, markerColor,
+                                                 ? palette::rgb(palette::argb::receiverDirection)
+                                                 : palette::rgb(palette::argb::receiverDirectionAlt);
+            glm::vec3 position = receiverCenter + receiverRight * (side * offset);
+            float yaw = receiverYaw + yawOffset;
+            float pitch = receiverPitch;
+            if (paChannel)
+            {
+                position = glm::vec3(paValue(params.paDstX, receiver, 2.0f),
+                                     paValue(params.paDstY, receiver, 1.5f),
+                                     paValue(params.paDstZ, receiver, 0.0f));
+                yaw = paValue(params.paDstYawDeg, receiver, -90.0f);
+                pitch = paValue(params.paDstPitchDeg, receiver, 0.0f);
+            }
+            drawObject(position, yaw, pitch, markerColor,
                        directionColor, receiverCount == 1 ? 1.0f : 0.55f);
         }
 

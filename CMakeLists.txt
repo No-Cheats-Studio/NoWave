@@ -120,6 +120,8 @@ target_sources(NoWave
         src/scene/FbxSceneLoader.h
         src/scene/SceneFileLoader.cpp
         src/scene/SceneFileLoader.h
+        src/scene/MaterialLibrary.cpp
+        src/scene/MaterialLibrary.h
         src/scene/RoomPresets.cpp
         src/scene/RoomPresets.h
         src/ui/StartScreenComponent.cpp

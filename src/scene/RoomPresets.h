@@ -13,7 +13,10 @@ enum class RoomPresetId
 {
     Studio,
     ConcertHall,
-    GlassAtrium
+    GlassAtrium,
+    LivingRoom,
+    ParkingGarage,
+    Classroom
 };
 
 struct RoomPresetInfo

@@ -33,9 +33,16 @@ struct RayTap {
     float pad1;
 };
 
+// Muss exakt zu nowave::RaySegment (BVHNode.h) passen: 48 Byte, std430.
+// startPosition.w / endPosition.w = Breitbandenergie (0..1), energy* = Energie je Band,
+// reflectionIndex = Anzahl bisheriger Reflexionen des Segments.
 struct RaySegment {
     vec4 startPosition;
     vec4 endPosition;
+    float energyLow;
+    float energyMid;
+    float energyHigh;
+    int reflectionIndex;
 };
 
 layout(set = 0, binding = 0, std430) readonly buffer BVHBuf {
@@ -193,7 +200,7 @@ float random01(inout uint state) {
 }
 
 vec3 randomHemisphere(vec3 normal, inout uint state) {
-    float z = random01(state);
+    float z = sqrt(random01(state)); // kosinusgewichtet (Lambert)
     float angle = 6.28318530718 * random01(state);
     float radius = sqrt(max(0.0, 1.0 - z * z));
     vec3 helper = abs(normal.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
@@ -218,39 +225,93 @@ float sourcePatternGain(int pattern, float forwardDot) {
     return patternGain(pattern, forwardDot);
 }
 
-void recordRaySegment(vec3 start, vec3 end, float energy) {
+void recordRaySegment(vec3 start, vec3 end, vec3 amplitude, float totalDistance,
+                      int reflectionIndex) {
     if (simulation.physics.w <= 0.5)
         return;
 
     uint pathIndex = atomicAdd(rayPathCount, 1u);
     if (pathIndex < uint(rayPaths.length())) {
-        float boundedEnergy = clamp(energy, 0.0, 1.0);
-        rayPaths[pathIndex].startPosition = vec4(start, boundedEnergy);
-        rayPaths[pathIndex].endPosition = vec4(end, boundedEnergy);
+        float spreading = 1.0 / max(totalDistance, 0.1);
+        float broadband = clamp((amplitude.x + amplitude.y + amplitude.z) / 3.0 * spreading,
+                                0.0, 1.0);
+        vec3 bandEnergy = clamp(amplitude * amplitude * (spreading * spreading), 0.0, 1.0);
+        rayPaths[pathIndex].startPosition = vec4(start, broadband);
+        rayPaths[pathIndex].endPosition = vec4(end, broadband);
+        rayPaths[pathIndex].energyLow = bandEnergy.x;
+        rayPaths[pathIndex].energyMid = bandEnergy.y;
+        rayPaths[pathIndex].energyHigh = bandEnergy.z;
+        rayPaths[pathIndex].reflectionIndex = reflectionIndex;
     }
 }
 
-void addTap(float pathDistance, float remainingDistance,
-            float pathGainLow, float pathGainMid, float pathGainHigh,
-            int sourceIndex, int receiverIndex, float receiverGain) {
-    float totalDistance = pathDistance + remainingDistance;
-    int sampleIndex = int(totalDistance / simulation.physics.y * simulation.physics.z);
+// amplitude ist der fertige Pegel je Band (inkl. 1/r, Charakteristik, Normierung).
+// Laufzeit = Gesamtweg / Schallgeschwindigkeit * Samplerate.
+void addTap(float totalDistance, vec3 amplitude, int sourceIndex, int receiverIndex) {
+    int sampleIndex = int(totalDistance / simulation.physics.y * simulation.physics.z + 0.5);
     if (sampleIndex < 0 || sampleIndex >= simulation.limits.x)
         return;
+    if (max(amplitude.x, max(amplitude.y, amplitude.z)) <= 0.0)
+        return;
 
-    float gain = receiverGain /
-                 max(totalDistance, 0.1) /
-                 float(simulation.limits.z);
     uint index = atomicAdd(tapCount, 1u);
     if (index < uint(simulation.limits.y)) {
         taps[index].sampleIndex = sampleIndex;
         taps[index].sourceIndex = sourceIndex;
         taps[index].receiverIndex = receiverIndex;
-        taps[index].gainLow = pathGainLow * gain;
-        taps[index].gainMid = pathGainMid * gain;
-        taps[index].gainHigh = pathGainHigh * gain;
         taps[index].pad0 = 0;
+        taps[index].gainLow = amplitude.x;
+        taps[index].gainMid = amplitude.y;
+        taps[index].gainHigh = amplitude.z;
         taps[index].pad1 = 0.0;
+    }
+}
+
+// Verbindet einen Punkt mit allen Empfängern (Next-Event-Estimation).
+// bounce == 0: Direktschall (Quellencharakteristik zum Empfänger).
+// bounce > 0: diffuser Anteil einer Reflexion, gewichtet mit Streuanteil * 2cos(θ).
+void connectReceivers(vec3 point, float pathDistance, vec3 pathGain, int bounce,
+                      int sourceIndex, vec3 surfaceNormal, float diffuseFraction,
+                      float normalization) {
+    for (int receiverIndex = 0; receiverIndex < simulation.configuration.y;
+         ++receiverIndex) {
+        vec3 receiver = simulation.receiverPositions[receiverIndex].xyz;
+        vec3 toReceiver = receiver - point;
+        float centerDistance = length(toReceiver);
+        if (centerDistance < 1e-6)
+            continue;
+        vec3 dirToReceiver = toReceiver / centerDistance;
+
+        vec3 gain = pathGain;
+        if (bounce == 0) {
+            float s = sourcePatternGain(simulation.patterns.x,
+                                        dot(normalize(simulation.sourceDirections[sourceIndex].xyz),
+                                            dirToReceiver));
+            gain = vec3(s);
+        } else {
+            float cosine = dot(surfaceNormal, dirToReceiver);
+            if (cosine <= 0.0)
+                continue;
+            gain *= clamp(diffuseFraction * 2.0 * cosine, 0.0, 2.0);
+        }
+        if (max(gain.x, max(gain.y, gain.z)) <= 0.0)
+            continue;
+
+        float obstructionT;
+        int obstructionTri;
+        vec3 obstructionNormal;
+        if (traverseBVH(point, dirToReceiver, max(0.0, centerDistance - 1e-4),
+                        obstructionT, obstructionTri, obstructionNormal))
+            continue;
+
+        float receiverGain = patternGain(
+            simulation.patterns[receiverIndex + 1],
+            dot(normalize(simulation.receiverDirections[receiverIndex].xyz),
+                -dirToReceiver));
+        float totalDistance = pathDistance + centerDistance;
+        vec3 weighted = gain * receiverGain * normalization;
+        addTap(totalDistance, weighted / max(totalDistance, 0.1), sourceIndex, receiverIndex);
+        recordRaySegment(point, receiver, weighted, totalDistance, bounce);
     }
 }
 
@@ -263,70 +324,25 @@ void main() {
 
     int sourceIndex = workIndex / numRays;
     int rayIndex = workIndex - sourceIndex * numRays;
+    int maxBounces = simulation.limits.w;
+    float radius = simulation.physics.x;
     vec3 origin = simulation.sourcePositions[sourceIndex].xyz;
     vec3 sourceDirection = normalize(simulation.sourceDirections[sourceIndex].xyz);
     vec3 direction = fibonacciDirection(rayIndex, numRays, sourceDirection);
     float sourceGain = sourcePatternGain(simulation.patterns.x,
                                          dot(sourceDirection, direction));
     float pathDistance = 0.0;
-    float pathGainLow = sourceGain;
-    float pathGainMid = sourceGain;
-    float pathGainHigh = sourceGain;
+    // Amplitudenfaktor je Band (Low, Mid, High)
+    vec3 pathGain = vec3(sourceGain);
+    bool specularChain = true;
     uint randomState = uint(workIndex + 1) * 0x9e3779b9u;
 
-    for (int bounce = 0; bounce <= simulation.limits.w; ++bounce) {
-        for (int receiverIndex = 0;
-             receiverIndex < simulation.configuration.y;
-             ++receiverIndex) {
-            vec3 receiver = simulation.receiverPositions[receiverIndex].xyz;
-            vec3 toReceiver = receiver - origin;
-            float centerDistance = length(toReceiver);
-            vec3 receiverDirection = centerDistance > 1e-6
-                                     ? toReceiver / centerDistance
-                                 : direction;
-            float sphereDistance = 0.0;
-            bool intersectsReceiver = centerDistance <= simulation.physics.x;
-            if (!intersectsReceiver) {
-                intersectsReceiver = raySphere(origin, receiverDirection, receiver,
-                                               simulation.physics.x, sphereDistance);
-            }
+    // Direktschall deterministisch, genau einmal je Quelle.
+    if (rayIndex == 0)
+        connectReceivers(origin, 0.0, vec3(1.0), 0, sourceIndex, vec3(0.0), 0.0, 1.0);
 
-            if (intersectsReceiver) {
-                float obstructionT;
-                int obstructionTri;
-                vec3 obstructionNormal;
-                bool blocked = traverseBVH(origin, receiverDirection,
-                                           max(0.0, sphereDistance - 1e-4),
-                                           obstructionT, obstructionTri, obstructionNormal);
-                if (!blocked) {
-                    float receiverGain = patternGain(
-                        simulation.patterns[receiverIndex + 1],
-                        dot(simulation.receiverDirections[receiverIndex].xyz,
-                            -receiverDirection));
-                    float directSourceGain = sourcePatternGain(
-                        simulation.patterns.x,
-                        dot(simulation.sourceDirections[sourceIndex].xyz,
-                            receiverDirection));
-                    float tapGainLow = bounce == 0 ? directSourceGain : pathGainLow;
-                    float tapGainMid = bounce == 0 ? directSourceGain : pathGainMid;
-                    float tapGainHigh = bounce == 0 ? directSourceGain : pathGainHigh;
-                    if (max(tapGainLow, max(tapGainMid, tapGainHigh)) > 0.0) {
-                        addTap(pathDistance, sphereDistance,
-                               tapGainLow, tapGainMid, tapGainHigh,
-                               sourceIndex, receiverIndex, receiverGain);
-                        float totalDistance = pathDistance + sphereDistance;
-                        float energy = (tapGainLow + tapGainMid + tapGainHigh) / 3.0 *
-                                       receiverGain / max(totalDistance, 0.1);
-                        recordRaySegment(
-                            origin,
-                            origin + receiverDirection * sphereDistance,
-                            energy);
-                    }
-                }
-            }
-        }
-
-        if (bounce == simulation.limits.w || (bounce == 0 && sourceGain <= 0.0))
+    for (int bounce = 0; bounce <= maxBounces; ++bounce) {
+        if (bounce == 0 && sourceGain <= 0.0)
             break;
 
         float hitT;
@@ -335,31 +351,63 @@ void main() {
         if (!traverseBVH(origin, direction, 1e30, hitT, hitTri, hitNormal))
             break;
 
-        float hitDistance = pathDistance + hitT;
-        float rayEnergy = (pathGainLow + pathGainMid + pathGainHigh) / 3.0 /
-                          max(hitDistance, 0.1);
-        recordRaySegment(origin, origin + direction * hitT, rayEnergy);
+        // Kugeltreffer spekularer Pfade ab der ersten Reflexion. Erwartete Trefferzahl
+        // N r²/(4 d²) => Gewicht 4d/(N r²) liefert im Mittel die Amplitude 1/d.
+        if (bounce >= 1 && specularChain) {
+            for (int receiverIndex = 0; receiverIndex < simulation.configuration.y;
+                 ++receiverIndex) {
+                vec3 receiver = simulation.receiverPositions[receiverIndex].xyz;
+                vec3 toReceiver = receiver - origin;
+                float along = dot(toReceiver, direction);
+                if (along <= 0.0 || along >= hitT)
+                    continue;
+                if (length(toReceiver - direction * along) > radius)
+                    continue;
+                float totalDistance = pathDistance + along;
+                float receiverGain = patternGain(
+                    simulation.patterns[receiverIndex + 1],
+                    dot(normalize(simulation.receiverDirections[receiverIndex].xyz),
+                        -direction));
+                vec3 weighted = pathGain * receiverGain * 4.0 * totalDistance /
+                                (float(numRays) * radius * radius);
+                addTap(totalDistance, weighted, sourceIndex, receiverIndex);
+                recordRaySegment(origin, origin + direction * along,
+                                 weighted * max(totalDistance, 0.1), totalDistance, bounce);
+            }
+        }
 
+        recordRaySegment(origin, origin + direction * hitT, pathGain,
+                         pathDistance + hitT, bounce);
+
+        if (bounce == maxBounces)
+            break;
+
+        vec3 hitPoint = origin + direction * hitT;
         pathDistance += hitT;
         GPUTriangle tri = tris[hitTri];
         GPUMaterial material = materials[tri.materialIndex];
-        pathGainLow *= clamp(1.0 - material.absorption.x, 0.0, 1.0);
-        pathGainMid *= clamp(1.0 - material.absorption.y, 0.0, 1.0);
-        pathGainHigh *= clamp(1.0 - material.absorption.z, 0.0, 1.0);
-        if (max(pathGainLow, max(pathGainMid, pathGainHigh)) < 1e-5)
+        // absorption ist ein Energiegrad; die Amplitude skaliert mit sqrt(1 - alpha).
+        pathGain.x *= sqrt(clamp(1.0 - material.absorption.x, 0.0, 1.0));
+        pathGain.y *= sqrt(clamp(1.0 - material.absorption.y, 0.0, 1.0));
+        pathGain.z *= sqrt(clamp(1.0 - material.absorption.z, 0.0, 1.0));
+        if (max(pathGain.x, max(pathGain.y, pathGain.z)) < 1e-5)
             break;
 
         vec3 normal = dot(hitNormal, direction) < 0.0 ? hitNormal : -hitNormal;
-        vec3 reflected = normalize(reflect(direction, normal));
         float scattering = clamp(material.absorption.w, 0.0, 1.0);
-        if (scattering > 0.0) {
-            vec3 diffuse = randomHemisphere(normal, randomState);
-            if (dot(diffuse, reflected) < 0.0)
-                diffuse = -diffuse;
-            direction = normalize(mix(reflected, diffuse, scattering));
+        vec3 surfacePoint = hitPoint + normal * 1e-4;
+
+        if (scattering > 0.0)
+            connectReceivers(surfacePoint, pathDistance, pathGain, bounce + 1,
+                             sourceIndex, normal, scattering, 1.0 / float(numRays));
+
+        // Diffus mit Wahrscheinlichkeit = Streuung, sonst spiegelnd.
+        if (random01(randomState) < scattering) {
+            direction = randomHemisphere(normal, randomState);
+            specularChain = false;
         } else {
-            direction = reflected;
+            direction = normalize(reflect(direction, normal));
         }
-        origin += direction * 1e-4 + normal * 1e-4;
+        origin = surfacePoint;
     }
 }

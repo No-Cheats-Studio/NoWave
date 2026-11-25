@@ -13,7 +13,11 @@ enum class SurfaceTexture : int32_t
     Brick = 3,
     Wood = 4,
     Curtain = 5,
-    MineralWool = 6
+    MineralWool = 6,
+    Concrete = 7,
+    Carpet = 8,
+    Plaster = 9,
+    CeilingTile = 10
 };
 
 /**

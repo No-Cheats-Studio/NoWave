@@ -1,5 +1,7 @@
 #include "scene/ObjSceneLoader.h"
 
+#include "scene/MaterialLibrary.h"
+
 #include <glm/geometric.hpp>
 #include <tiny_obj_loader.h>
 
@@ -43,7 +45,11 @@ SceneLoadResult ObjSceneLoader::loadFromFile(const std::filesystem::path& filePa
     {
         mesh->materials.reserve(objMaterials.size() + 1);
         for (const auto& mat : objMaterials)
-            mesh->materials.push_back(AcousticMaterial{ mat.name.empty() ? "Material" : mat.name });
+        {
+            AcousticMaterial material { mat.name.empty() ? "Material" : mat.name };
+            MaterialLibrary::matchByName(mat.name, material);
+            mesh->materials.push_back(std::move(material));
+        }
         // Fallback slot at the end for faces without an assigned material (-1).
         mesh->materials.push_back(AcousticMaterial{ "Default" });
     }

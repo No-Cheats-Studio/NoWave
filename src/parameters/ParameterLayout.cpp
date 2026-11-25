@@ -110,6 +110,28 @@ void ParameterPointers::bind(juce::AudioProcessorValueTreeState& apvts) noexcept
     dstEqMidGainDb = apvts.getRawParameterValue(ParamIDs::dstEqMidGain);
     dstEqMidFreqHz = apvts.getRawParameterValue(ParamIDs::dstEqMidFreq);
     dstEqHighGainDb = apvts.getRawParameterValue(ParamIDs::dstEqHighGain);
+
+    paSrcX[0] = apvts.getRawParameterValue(ParamIDs::paSrcLeftX);
+    paSrcY[0] = apvts.getRawParameterValue(ParamIDs::paSrcLeftY);
+    paSrcZ[0] = apvts.getRawParameterValue(ParamIDs::paSrcLeftZ);
+    paSrcYawDeg[0] = apvts.getRawParameterValue(ParamIDs::paSrcLeftYaw);
+    paSrcPitchDeg[0] = apvts.getRawParameterValue(ParamIDs::paSrcLeftPitch);
+    paSrcX[1] = apvts.getRawParameterValue(ParamIDs::paSrcRightX);
+    paSrcY[1] = apvts.getRawParameterValue(ParamIDs::paSrcRightY);
+    paSrcZ[1] = apvts.getRawParameterValue(ParamIDs::paSrcRightZ);
+    paSrcYawDeg[1] = apvts.getRawParameterValue(ParamIDs::paSrcRightYaw);
+    paSrcPitchDeg[1] = apvts.getRawParameterValue(ParamIDs::paSrcRightPitch);
+
+    paDstX[0] = apvts.getRawParameterValue(ParamIDs::paDstLeftX);
+    paDstY[0] = apvts.getRawParameterValue(ParamIDs::paDstLeftY);
+    paDstZ[0] = apvts.getRawParameterValue(ParamIDs::paDstLeftZ);
+    paDstYawDeg[0] = apvts.getRawParameterValue(ParamIDs::paDstLeftYaw);
+    paDstPitchDeg[0] = apvts.getRawParameterValue(ParamIDs::paDstLeftPitch);
+    paDstX[1] = apvts.getRawParameterValue(ParamIDs::paDstRightX);
+    paDstY[1] = apvts.getRawParameterValue(ParamIDs::paDstRightY);
+    paDstZ[1] = apvts.getRawParameterValue(ParamIDs::paDstRightZ);
+    paDstYawDeg[1] = apvts.getRawParameterValue(ParamIDs::paDstRightYaw);
+    paDstPitchDeg[1] = apvts.getRawParameterValue(ParamIDs::paDstRightPitch);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
@@ -201,6 +223,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
                 ParamIDs::dstEqMidFreq,
                 ParamIDs::dstEqHighGain,
                 "Listener");
+
+    // PA channel placement. Defaults mirror the centred speaker/mic pair at ±0.15 m.
+    addPositionParams(params, ParamIDs::paSrcLeftX, ParamIDs::paSrcLeftY, ParamIDs::paSrcLeftZ,
+                      "PA Source Left", -2.15f, 1.5f, 0.0f);
+    addRotationParams(params, ParamIDs::paSrcLeftYaw, ParamIDs::paSrcLeftPitch,
+                      "PA Source Left", 90.0f);
+    addPositionParams(params, ParamIDs::paSrcRightX, ParamIDs::paSrcRightY, ParamIDs::paSrcRightZ,
+                      "PA Source Right", -1.85f, 1.5f, 0.0f);
+    addRotationParams(params, ParamIDs::paSrcRightYaw, ParamIDs::paSrcRightPitch,
+                      "PA Source Right", 90.0f);
+
+    addPositionParams(params, ParamIDs::paDstLeftX, ParamIDs::paDstLeftY, ParamIDs::paDstLeftZ,
+                      "PA Listener Left", 1.85f, 1.5f, 0.0f);
+    addRotationParams(params, ParamIDs::paDstLeftYaw, ParamIDs::paDstLeftPitch,
+                      "PA Listener Left", -90.0f);
+    addPositionParams(params, ParamIDs::paDstRightX, ParamIDs::paDstRightY, ParamIDs::paDstRightZ,
+                      "PA Listener Right", 2.15f, 1.5f, 0.0f);
+    addRotationParams(params, ParamIDs::paDstRightYaw, ParamIDs::paDstRightPitch,
+                      "PA Listener Right", -90.0f);
 
     return {params.begin(), params.end()};
 }

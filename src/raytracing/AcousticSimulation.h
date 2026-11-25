@@ -16,6 +16,15 @@ inline constexpr int kMaxRaySegments =
     kMaxRayCount * 2 * (kMaxRayBounces + 2 * (kMaxRayBounces + 1));
 inline constexpr int kMaxRayTaps = 1048576;
 
+enum class SimulationStatus : int32_t
+{
+    NoGpu = 0,
+    NoRoom,
+    Computing,
+    Ready,
+    Failed
+};
+
 enum class OutputType : int32_t
 {
     Vocal = 0,

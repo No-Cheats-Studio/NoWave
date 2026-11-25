@@ -1,5 +1,7 @@
 #include "scene/RoomPresets.h"
 
+#include "scene/MaterialLibrary.h"
+
 #include <array>
 #include <functional>
 #include <glm/geometric.hpp>
@@ -15,20 +17,14 @@ enum MaterialSlot : uint32_t
     Brick,
     Wood,
     Curtain,
-    MineralWool
+    MineralWool,
+    Concrete,
+    Plaster,
+    Carpet,
+    CeilingTile
 };
 
-std::vector<AcousticMaterial> makeMaterials()
-{
-    return {
-        { "Polished Stone", 0.02f, 0.03f, 0.04f, 0.03f, SurfaceTexture::Stone },
-        { "Glass", 0.01f, 0.02f, 0.02f, 0.02f, SurfaceTexture::Glass },
-        { "Rough Brick", 0.03f, 0.05f, 0.08f, 0.55f, SurfaceTexture::Brick },
-        { "Wood Panel / Parquet", 0.10f, 0.12f, 0.18f, 0.20f, SurfaceTexture::Wood },
-        { "Heavy Velour Curtain", 0.10f, 0.45f, 0.75f, 0.65f, SurfaceTexture::Curtain },
-        { "Mineral Wool (100 mm)", 0.25f, 0.88f, 0.97f, 0.35f, SurfaceTexture::MineralWool }
-    };
-}
+// Slot order must match MaterialLibrary::builtIn().
 
 void addQuadInward(RoomMesh& mesh,
                    const glm::vec3& p0,
@@ -89,16 +85,18 @@ void addQuadGrid(RoomMesh& mesh,
     }
 }
 
-template <typename WallMaterial>
+template <typename FloorMaterial, typename CeilingMaterial, typename WallMaterial>
 std::shared_ptr<RoomMesh> buildBoxRoom(const std::string& name,
                                        float width,
                                        float height,
                                        float depth,
+                                       FloorMaterial floorMaterial,
+                                       CeilingMaterial ceilingMaterial,
                                        WallMaterial wallMaterial)
 {
     auto mesh = std::make_shared<RoomMesh>();
     mesh->name = name;
-    mesh->materials = makeMaterials();
+    mesh->materials = MaterialLibrary::builtIn();
 
     const float hx = width * 0.5f;
     const float hz = depth * 0.5f;
@@ -113,15 +111,8 @@ std::shared_ptr<RoomMesh> buildBoxRoom(const std::string& name,
     const glm::vec3 t11( hx, height,  hz);
     const glm::vec3 t01(-hx, height,  hz);
 
-    addQuadGrid(*mesh, b00, b01, b11, b10, 6, 4,
-                [](int, int) { return static_cast<uint32_t>(Wood); });
-    addQuadGrid(*mesh, t00, t10, t11, t01, 6, 4,
-                [](int row, int column)
-                {
-                    return static_cast<uint32_t>((row + column) % 2 == 0
-                                                     ? MineralWool
-                                                     : Stone);
-                });
+    addQuadGrid(*mesh, b00, b01, b11, b10, 6, 4, floorMaterial);
+    addQuadGrid(*mesh, t00, t10, t11, t01, 6, 4, ceilingMaterial);
 
     const std::array<std::array<glm::vec3, 4>, 4> walls {{
         {{ b00, b10, t10, t00 }},
@@ -142,17 +133,34 @@ std::shared_ptr<RoomMesh> buildBoxRoom(const std::string& name,
     mesh->recomputeBounds();
     return mesh;
 }
+uint32_t woodFloor(int, int) { return static_cast<uint32_t>(Wood); }
+
+uint32_t checkerCeiling(int row, int column)
+{
+    return static_cast<uint32_t>((row + column) % 2 == 0 ? MineralWool : Stone);
+}
+
+constexpr auto solid(MaterialSlot slot)
+{
+    return [slot](int, int) { return static_cast<uint32_t>(slot); };
+}
 } // namespace
 
 const std::vector<RoomPresetInfo>& RoomPresets::getAll()
 {
     static const std::vector<RoomPresetInfo> presets = {
         { RoomPresetId::Studio, "studio", "Treated Studio",
-          "6m x 3m x 5.5m - mineral wool, brick, wood and velour" },
+          "6 x 3 x 5.5 m - mineral wool and velour absorbers, brick walls" },
         { RoomPresetId::ConcertHall, "concert_hall", "Concert Hall",
-          "22m x 12m x 36m - parquet, timber, stone and curtains" },
+          "22 x 12 x 36 m - wood floor and walls, brick, stone and velour" },
         { RoomPresetId::GlassAtrium, "glass_atrium", "Glass Atrium",
-          "18m x 11m x 28m - glass, stone, brick and absorbers" }
+          "18 x 11 x 28 m - glass walls with brick and absorber bands, wood floor" },
+        { RoomPresetId::LivingRoom, "living_room", "Living Room",
+          "5 x 2.5 x 4 m - plaster walls, carpet, curtains and a window" },
+        { RoomPresetId::ParkingGarage, "parking_garage", "Underground Garage",
+          "40 x 2.8 x 25 m - bare concrete on every surface" },
+        { RoomPresetId::Classroom, "classroom", "Classroom",
+          "9 x 3 x 7 m - plaster walls, acoustic ceiling tiles, windows, wood floor" }
     };
     return presets;
 }
@@ -177,6 +185,9 @@ const char* RoomPresets::toKey(RoomPresetId id) noexcept
         case RoomPresetId::Studio: return "studio";
         case RoomPresetId::ConcertHall: return "concert_hall";
         case RoomPresetId::GlassAtrium: return "glass_atrium";
+        case RoomPresetId::LivingRoom: return "living_room";
+        case RoomPresetId::ParkingGarage: return "parking_garage";
+        case RoomPresetId::Classroom: return "classroom";
     }
     return "studio";
 }
@@ -187,6 +198,7 @@ std::shared_ptr<RoomMesh> RoomPresets::createMesh(RoomPresetId id)
     {
         case RoomPresetId::Studio:
             return buildBoxRoom("Treated Studio", 6.0f, 3.0f, 5.5f,
+                                woodFloor, checkerCeiling,
                                 [](int face, int row, int column)
                                 {
                                     if (face == 0 && row >= 1 && row <= 4 &&
@@ -202,6 +214,7 @@ std::shared_ptr<RoomMesh> RoomPresets::createMesh(RoomPresetId id)
 
         case RoomPresetId::ConcertHall:
             return buildBoxRoom("Concert Hall", 22.0f, 12.0f, 36.0f,
+                                woodFloor, checkerCeiling,
                                 [](int face, int row, int column)
                                 {
                                     if ((face == 0 || face == 1) && row >= 2 &&
@@ -216,6 +229,7 @@ std::shared_ptr<RoomMesh> RoomPresets::createMesh(RoomPresetId id)
 
         case RoomPresetId::GlassAtrium:
             return buildBoxRoom("Glass Atrium", 18.0f, 11.0f, 28.0f,
+                                woodFloor, checkerCeiling,
                                 [](int face, int row, int column)
                                 {
                                     if (face < 2)
@@ -233,9 +247,41 @@ std::shared_ptr<RoomMesh> RoomPresets::createMesh(RoomPresetId id)
                                         return static_cast<uint32_t>(Wood);
                                     return static_cast<uint32_t>(Stone);
                                 });
+
+        case RoomPresetId::LivingRoom:
+            return buildBoxRoom("Living Room", 5.0f, 2.5f, 4.0f,
+                                solid(Carpet), solid(Plaster),
+                                [](int face, int row, int column)
+                                {
+                                    if (face == 1 && row >= 2 && row <= 4 &&
+                                        column >= 3 && column <= 4)
+                                        return static_cast<uint32_t>(Glass);
+                                    if (face == 1 && row >= 1 && column >= 1 && column <= 6)
+                                        return static_cast<uint32_t>(Curtain);
+                                    return static_cast<uint32_t>(Plaster);
+                                });
+
+        case RoomPresetId::ParkingGarage:
+            return buildBoxRoom("Underground Garage", 40.0f, 2.8f, 25.0f,
+                                solid(Concrete), solid(Concrete),
+                                [](int, int, int) { return static_cast<uint32_t>(Concrete); });
+
+        case RoomPresetId::Classroom:
+            return buildBoxRoom("Classroom", 9.0f, 3.0f, 7.0f,
+                                woodFloor, solid(CeilingTile),
+                                [](int face, int row, int column)
+                                {
+                                    if (face == 3 && row >= 2 && row <= 4 &&
+                                        column >= 1 && column <= 6)
+                                        return static_cast<uint32_t>(Glass);
+                                    if (row == 0)
+                                        return static_cast<uint32_t>(Wood);
+                                    return static_cast<uint32_t>(Plaster);
+                                });
     }
 
     return buildBoxRoom("Treated Studio", 6.0f, 3.0f, 5.5f,
+                        woodFloor, checkerCeiling,
                         [](int, int, int) { return static_cast<uint32_t>(MineralWool); });
 }
 } // namespace nowave

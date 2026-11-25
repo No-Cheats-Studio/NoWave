@@ -73,6 +73,7 @@ void RaytracingWorker::start(double rate)
     lastMesh.reset();
     publishRayPaths({});
     vulkanAvailable.store(false, std::memory_order_release);
+    status.store(SimulationStatus::NoGpu, std::memory_order_release);
     running.store(true, std::memory_order_release);
     thread = std::thread(&RaytracingWorker::threadFunc, this);
 }
@@ -82,6 +83,11 @@ void RaytracingWorker::stop()
     running.store(false, std::memory_order_release);
     if (thread.joinable())
         thread.join();
+}
+
+SimulationStatus RaytracingWorker::getStatus() const noexcept
+{
+    return status.load(std::memory_order_acquire);
 }
 
 bool RaytracingWorker::isVulkanAvailable() const noexcept
@@ -137,7 +143,42 @@ bool RaytracingWorker::simulationParametersChanged() noexcept
                        static_cast<int>(MicrophonePattern::Cardioid), 3) != lastRightMicPattern ||
            rayDensityValue(params) != lastRayDensity ||
            rayBouncesValue(params) != lastRayBounces ||
-           rayPathsEnabled(params) != lastShowRayPaths;
+           rayPathsEnabled(params) != lastShowRayPaths ||
+           paChannelsChanged();
+}
+
+bool RaytracingWorker::paChannelsChanged() const noexcept
+{
+    const auto current = paChannelValues();
+    for (size_t i = 0; i < current.size(); ++i)
+    {
+        const float threshold = i % 5 < 3 ? kPositionChangeDeltaM : kRotationChangeDeltaDeg;
+        if (std::abs(current[i] - lastPaChannelValues[i]) >= threshold)
+            return true;
+    }
+    return false;
+}
+
+std::array<float, 20> RaytracingWorker::paChannelValues() const noexcept
+{
+    std::array<float, 20> values {};
+    for (int channel = 0; channel < 2; ++channel)
+    {
+        const size_t base = static_cast<size_t>(channel) * 5;
+        values[base + 0] = parameterValue(params.paSrcX[channel], 0.0f);
+        values[base + 1] = parameterValue(params.paSrcY[channel], 1.5f);
+        values[base + 2] = parameterValue(params.paSrcZ[channel], 0.0f);
+        values[base + 3] = parameterValue(params.paSrcYawDeg[channel], 90.0f);
+        values[base + 4] = parameterValue(params.paSrcPitchDeg[channel], 0.0f);
+
+        const size_t dst = 10 + base;
+        values[dst + 0] = parameterValue(params.paDstX[channel], 2.0f);
+        values[dst + 1] = parameterValue(params.paDstY[channel], 1.5f);
+        values[dst + 2] = parameterValue(params.paDstZ[channel], 0.0f);
+        values[dst + 3] = parameterValue(params.paDstYawDeg[channel], -90.0f);
+        values[dst + 4] = parameterValue(params.paDstPitchDeg[channel], 0.0f);
+    }
+    return values;
 }
 
 void RaytracingWorker::recordSimulationParameters() noexcept
@@ -163,6 +204,7 @@ void RaytracingWorker::recordSimulationParameters() noexcept
     lastRayDensity = rayDensityValue(params);
     lastRayBounces = rayBouncesValue(params);
     lastShowRayPaths = rayPathsEnabled(params);
+    lastPaChannelValues = paChannelValues();
 }
 
 RaytraceParameters RaytracingWorker::makeRaytraceParameters(int maxIRSamples) const noexcept
@@ -207,16 +249,25 @@ RaytraceParameters RaytracingWorker::makeRaytraceParameters(int maxIRSamples) co
     {
         const bool left = source == 0;
         const float side = left ? -1.0f : 1.0f;
+        if (outputType == OutputType::PA)
+        {
+            // PA: each speaker has its own placement and orientation.
+            const glm::vec3 position(parameterValue(params.paSrcX[source], 0.0f),
+                                     parameterValue(params.paSrcY[source], 1.5f),
+                                     parameterValue(params.paSrcZ[source], 0.0f));
+            const float yaw = parameterValue(params.paSrcYawDeg[source], 90.0f);
+            const float pitch = parameterValue(params.paSrcPitchDeg[source], 0.0f);
+            setVector(result.sourcePositions[source], position, 1.0f);
+            setVector(result.sourceDirections[source], directionFromYawPitch(yaw, pitch), 0.0f);
+            continue;
+        }
+
         float offset = 0.0f;
         float yawOffset = 0.0f;
         if (outputType == OutputType::SpeakerBox)
         {
             offset = 0.06f;
             yawOffset = side * 30.0f;
-        }
-        else if (outputType == OutputType::PA)
-        {
-            offset = 0.15f;
         }
         setVector(result.sourcePositions[source],
                   sourceCenter + sourceRight * (side * offset), 1.0f);
@@ -228,6 +279,20 @@ RaytraceParameters RaytracingWorker::makeRaytraceParameters(int maxIRSamples) co
     {
         const bool left = receiver == 0;
         const float side = left ? -1.0f : 1.0f;
+        if (inputType == InputType::PA)
+        {
+            // PA: each microphone has its own placement and orientation.
+            const glm::vec3 position(parameterValue(params.paDstX[receiver], 2.0f),
+                                     parameterValue(params.paDstY[receiver], 1.5f),
+                                     parameterValue(params.paDstZ[receiver], 0.0f));
+            const float yaw = parameterValue(params.paDstYawDeg[receiver], -90.0f);
+            const float pitch = parameterValue(params.paDstPitchDeg[receiver], 0.0f);
+            setVector(result.receiverPositions[receiver], position, 1.0f);
+            setVector(result.receiverDirections[receiver], directionFromYawPitch(yaw, pitch), 0.0f);
+            result.patterns[receiver + 1] = static_cast<int>(left ? leftPattern : rightPattern);
+            continue;
+        }
+
         float offset = 0.0f;
         float yawOffset = 0.0f;
         if (inputType == InputType::Ears)
@@ -235,20 +300,13 @@ RaytraceParameters RaytracingWorker::makeRaytraceParameters(int maxIRSamples) co
             offset = 0.09f;
             yawOffset = side * 10.0f;
         }
-        else if (inputType == InputType::PA)
-        {
-            offset = 0.15f;
-        }
         setVector(result.receiverPositions[receiver],
                   receiverCenter + receiverRight * (side * offset), 1.0f);
         setVector(result.receiverDirections[receiver],
                   directionFromYawPitch(receiverYaw + yawOffset, receiverPitch), 0.0f);
         result.patterns[receiver + 1] = static_cast<int>(
-            inputType == InputType::PA
-                ? (left ? leftPattern : rightPattern)
-                : (inputType == InputType::Microphone
-                       ? microphonePattern
-                       : MicrophonePattern::Cardioid));
+            inputType == InputType::Microphone ? microphonePattern
+                                               : MicrophonePattern::Cardioid);
     }
 
     result.physics[0] = kListenerRadius;
@@ -262,85 +320,17 @@ RaytraceParameters RaytracingWorker::makeRaytraceParameters(int maxIRSamples) co
     return result;
 }
 
-void RaytracingWorker::synthesizeDirectPath(const RaytraceParameters& parameters,
-                                             IRBuffer& ir) const noexcept
-{
-    ir.clear();
-    ir.sourceCount = parameters.configuration[0];
-    ir.receiverCount = parameters.configuration[1];
-    int sampleLength = 0;
-
-    for (int source = 0; source < ir.sourceCount; ++source)
-    {
-        const glm::vec3 sourcePosition(parameters.sourcePositions[source][0],
-                                       parameters.sourcePositions[source][1],
-                                       parameters.sourcePositions[source][2]);
-        const glm::vec3 sourceDirection(parameters.sourceDirections[source][0],
-                                        parameters.sourceDirections[source][1],
-                                        parameters.sourceDirections[source][2]);
-        for (int receiver = 0; receiver < ir.receiverCount; ++receiver)
-        {
-            const glm::vec3 receiverPosition(parameters.receiverPositions[receiver][0],
-                                             parameters.receiverPositions[receiver][1],
-                                             parameters.receiverPositions[receiver][2]);
-            const glm::vec3 receiverDirection(parameters.receiverDirections[receiver][0],
-                                              parameters.receiverDirections[receiver][1],
-                                              parameters.receiverDirections[receiver][2]);
-            const glm::vec3 displacement = receiverPosition - sourcePosition;
-            const float distance = glm::length(displacement);
-            if (distance <= 1.0e-6f)
-                continue;
-
-            const int sampleIndex = static_cast<int>(
-                distance / kSpeedOfSound * static_cast<float>(sampleRate));
-            if (sampleIndex < 0 ||
-                sampleIndex >= std::min(parameters.limits[0],
-                                        static_cast<int>(ir.channels[0].size())))
-                continue;
-
-            const glm::vec3 direction = displacement / distance;
-            const float sourceGain = patternGain(
-                static_cast<MicrophonePattern>(parameters.patterns[0]),
-                glm::dot(sourceDirection, direction));
-            const float receiverGain = patternGain(
-                static_cast<MicrophonePattern>(parameters.patterns[receiver + 1]),
-                glm::dot(receiverDirection, -direction));
-            const float gain = sourceGain * receiverGain /
-                               std::max(distance, 0.1f);
-            for (size_t band = 0; band < IRBuffer::kBandCount; ++band)
-            {
-                const size_t route = IRBuffer::channelIndex(
-                    band, static_cast<size_t>(receiver), static_cast<size_t>(source));
-                ir.channels[route][static_cast<size_t>(sampleIndex)] += gain;
-            }
-            sampleLength = std::max(sampleLength, sampleIndex + 1);
-        }
-    }
-
-    if (ir.receiverCount == 1)
-    {
-        for (size_t band = 0; band < IRBuffer::kBandCount; ++band)
-        {
-            const size_t bandOffset = band * IRBuffer::kRoutesPerBand;
-            std::copy(ir.channels[bandOffset].begin(),
-                      ir.channels[bandOffset].begin() + sampleLength,
-                      ir.channels[bandOffset + IRBuffer::kRightFromLeft].begin());
-            std::copy(ir.channels[bandOffset + IRBuffer::kLeftFromRight].begin(),
-                      ir.channels[bandOffset + IRBuffer::kLeftFromRight].begin() + sampleLength,
-                      ir.channels[bandOffset + IRBuffer::kRightFromRight].begin());
-        }
-    }
-    ir.sampleLength = sampleLength;
-}
-
 void RaytracingWorker::threadFunc()
 {
     raytracer = std::make_unique<VulkanRaytracer>();
     const bool gpuReady = raytracer->initialize();
     vulkanAvailable.store(gpuReady, std::memory_order_release);
     if (!gpuReady)
-        juce::Logger::writeToLog("NoWave: Vulkan raytracing unavailable; using direct-path fallback. " +
+    {
+        status.store(SimulationStatus::NoGpu, std::memory_order_release);
+        juce::Logger::writeToLog("NoWave: Vulkan raytracing unavailable; no impulse response will be produced. " +
                                  juce::String(raytracer->getLastError()));
+    }
 
     bool hasPublishedIR = false;
     bool sceneReady = false;
@@ -352,23 +342,32 @@ void RaytracingWorker::threadFunc()
         if (meshChanged || parametersChanged)
         {
             publishRayPaths({});
+            const bool meshValid = mesh != nullptr && mesh->isValid();
+            auto newStatus = !gpuReady ? SimulationStatus::NoGpu
+                                       : (meshValid ? SimulationStatus::Computing
+                                                    : SimulationStatus::NoRoom);
+            status.store(newStatus, std::memory_order_release);
+
             if (meshChanged)
             {
-                sceneReady = mesh != nullptr && mesh->isValid() && gpuReady &&
-                             raytracer->setScene(*mesh);
-                if (mesh != nullptr && mesh->isValid() && gpuReady && !sceneReady)
-                    juce::Logger::writeToLog("NoWave: Failed to upload room BVH; using direct-path fallback. " +
+                sceneReady = meshValid && gpuReady && raytracer->setScene(*mesh);
+                if (meshValid && gpuReady && !sceneReady)
+                {
+                    newStatus = SimulationStatus::Failed;
+                    juce::Logger::writeToLog("NoWave: Failed to upload room BVH. " +
                                              juce::String(raytracer->getLastError()));
+                }
             }
 
-            IRBuffer* ir = irQueue.getWriteBuffer();
-            ir->clear();
             std::vector<RaySegment> rayPaths;
-            if (mesh != nullptr && mesh->isValid())
+            bool publish = false;
+            if (newStatus == SimulationStatus::Computing && sceneReady)
             {
+                IRBuffer* ir = irQueue.getWriteBuffer();
+                ir->clear();
                 const RaytraceParameters traceParameters =
                     makeRaytraceParameters(static_cast<int>(ir->channels[0].size()));
-                const bool traced = sceneReady && raytracer->trace(
+                const bool traced = raytracer->trace(
                     traceParameters,
                     traceParameters.limits[2],
                     traceParameters.limits[3],
@@ -377,26 +376,38 @@ void RaytracingWorker::threadFunc()
                 if (!traced)
                 {
                     rayPaths.clear();
-                    if (sceneReady)
-                        juce::Logger::writeToLog("NoWave: GPU raytrace failed; using direct-path fallback. " +
-                                                 juce::String(raytracer->getLastError()));
-                    synthesizeDirectPath(traceParameters, *ir);
+                    ir->clear();
+                    newStatus = SimulationStatus::Failed;
+                    juce::Logger::writeToLog("NoWave: GPU raytrace failed. " +
+                                             juce::String(raytracer->getLastError()));
                 }
-                if (!ir->isEmpty() && !ir->prepareConvolutionBuffers())
+                else if (!ir->isEmpty() && !ir->prepareConvolutionBuffers())
                 {
+                    ir->clear();
+                    newStatus = SimulationStatus::Failed;
                     juce::Logger::writeToLog(
                         "NoWave: Failed to prepare convolution buffers for the generated IR.");
-                    ir->clear();
                 }
-                irQueue.publishWriteBuffer();
-                hasPublishedIR = true;
+                else
+                {
+                    newStatus = SimulationStatus::Ready;
+                }
+                publish = true;
             }
             else if (hasPublishedIR)
             {
-                irQueue.publishWriteBuffer();
-                hasPublishedIR = false;
+                // Ohne GPU-Ergebnis wird eine leere IR veröffentlicht, das Signal bleibt trocken.
+                irQueue.getWriteBuffer()->clear();
+                publish = true;
             }
 
+            if (publish)
+            {
+                irQueue.publishWriteBuffer();
+                hasPublishedIR = newStatus == SimulationStatus::Ready;
+            }
+
+            status.store(newStatus, std::memory_order_release);
             publishRayPaths(std::move(rayPaths));
             lastMesh = mesh;
             recordSimulationParameters();
@@ -406,6 +417,7 @@ void RaytracingWorker::threadFunc()
     }
 
     vulkanAvailable.store(false, std::memory_order_release);
+    status.store(SimulationStatus::NoGpu, std::memory_order_release);
     raytracer.reset();
 }
 } // namespace nowave

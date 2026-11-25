@@ -1,5 +1,7 @@
 #include "scene/FbxSceneLoader.h"
 
+#include "scene/MaterialLibrary.h"
+
 #include <ufbx.h>
 
 #include <glm/geometric.hpp>
@@ -69,7 +71,9 @@ SceneLoadResult FbxSceneLoader::loadFromFile(const std::filesystem::path& filePa
             name = "Material";
 
         const auto id = static_cast<uint32_t>(mesh->materials.size());
-        mesh->materials.push_back(AcousticMaterial { std::move(name) });
+        AcousticMaterial acoustic { name };
+        MaterialLibrary::matchByName(name, acoustic);
+        mesh->materials.push_back(std::move(acoustic));
         materialIds.emplace(material, id);
         return id;
     };

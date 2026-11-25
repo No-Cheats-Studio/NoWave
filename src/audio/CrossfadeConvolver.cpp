@@ -187,9 +187,11 @@ void CrossfadeConvolver::renderEngine(ConvEngine& engine,
 
         for (size_t band = 0; band < IRBuffer::kBandCount; ++band)
         {
-            engine.monoScratch.copyFrom(0, 0, engine.bandScratch[band], 0, 0, numSamples);
             for (int receiver = 0; receiver < engine.receiverCount; ++receiver)
             {
+                // Each receiver convolves the unprocessed band signal. The convolution runs in place,
+                // so the scratch buffer must be refilled per receiver.
+                engine.monoScratch.copyFrom(0, 0, engine.bandScratch[band], 0, 0, numSamples);
                 const size_t route = IRBuffer::channelIndex(
                     band, static_cast<size_t>(receiver), static_cast<size_t>(source));
                 juce::dsp::AudioBlock<float> block(engine.monoScratch);

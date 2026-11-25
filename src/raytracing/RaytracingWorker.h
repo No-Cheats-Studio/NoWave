@@ -2,10 +2,12 @@
 
 #include "audio/IRBuffer.h"
 #include "audio/IRUpdateQueue.h"
+#include "raytracing/AcousticSimulation.h"
 #include "raytracing/BVHNode.h"
 #include "parameters/ParameterLayout.h"
 #include "scene/RoomMesh.h"
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cfloat>
@@ -42,16 +44,17 @@ public:
     void stop();
 
     bool isVulkanAvailable() const noexcept;
+    SimulationStatus getStatus() const noexcept;
     std::shared_ptr<const std::vector<RaySegment>> getRayPathsSnapshot() const;
 
 private:
     void threadFunc();
     bool simulationParametersChanged() noexcept;
+    bool paChannelsChanged() const noexcept;
+    std::array<float, 20> paChannelValues() const noexcept;
     void recordSimulationParameters() noexcept;
     RaytraceParameters makeRaytraceParameters(int maxIRSamples) const noexcept;
     void publishRayPaths(std::vector<RaySegment> paths);
-    void synthesizeDirectPath(const RaytraceParameters& parameters,
-                              IRBuffer& ir) const noexcept;
 
     const ParameterPointers& params;
     IRUpdateQueue&           irQueue;
@@ -61,6 +64,7 @@ private:
     std::thread       thread;
     std::atomic<bool> running { false };
     std::atomic<bool> vulkanAvailable { false };
+    std::atomic<SimulationStatus> status { SimulationStatus::NoGpu };
 
     // Cached simulation inputs to detect changes
     float lastSrcX { FLT_MAX }, lastSrcY { FLT_MAX }, lastSrcZ { FLT_MAX };
@@ -71,6 +75,7 @@ private:
     int lastMicPattern { -1 }, lastLeftMicPattern { -1 }, lastRightMicPattern { -1 };
     int lastRayDensity { -1 }, lastRayBounces { -1 };
     bool lastShowRayPaths { false };
+    std::array<float, 20> lastPaChannelValues {};
     std::shared_ptr<const RoomMesh> lastMesh;
 
     static constexpr float kPositionChangeDeltaM   = 0.01f;  // 1 cm threshold

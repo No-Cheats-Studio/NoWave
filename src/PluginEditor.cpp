@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "ui/Palette.h"
 #include "scene/RoomPresets.h"
 #include "scene/SceneFileLoader.h"
 
@@ -28,7 +29,7 @@ NoWaveAudioProcessorEditor::NoWaveAudioProcessorEditor(NoWaveAudioProcessor& pro
 
 void NoWaveAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff11141a));
+    g.fillAll(nowave::palette::background);
 }
 
 void NoWaveAudioProcessorEditor::resized()

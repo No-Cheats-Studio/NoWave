@@ -76,11 +76,18 @@ struct alignas(16) RayTap
 };
 static_assert(sizeof(RayTap) == 32);
 
+// Ray segment for visualisation (48 bytes, std430; mirrors GLSL RaySegment):
+//   start[3] / end[3] = broadband energy 0..1, energy* = energy per band,
+//   reflectionIndex = number of reflections before this segment (0 = direct).
 struct alignas(16) RaySegment
 {
     float start[4];
     float end[4];
+    float energyLow;
+    float energyMid;
+    float energyHigh;
+    int32_t reflectionIndex;
 };
-static_assert(sizeof(RaySegment) == 32);
+static_assert(sizeof(RaySegment) == 48);
 } // namespace nowave
 
