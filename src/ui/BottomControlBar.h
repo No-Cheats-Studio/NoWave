@@ -87,11 +87,17 @@ private:
     juce::Label microphonePatternLabel, leftPatternLabel, rightPatternLabel;
     juce::ComboBox outputTypeBox, inputTypeBox;
     juce::ComboBox microphonePatternBox, leftPatternBox, rightPatternBox;
+    juce::ToggleButton showRayPathsButton;
+    juce::Slider rayDensitySlider, rayBouncesSlider;
+    juce::Label rayDensityLabel, rayBouncesLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> outputTypeAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> inputTypeAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> microphonePatternAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> leftPatternAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> rightPatternAtt;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> showRayPathsAtt;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> rayDensityAtt;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> rayBouncesAtt;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BottomControlBar)
 };

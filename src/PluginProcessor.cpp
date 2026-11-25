@@ -247,6 +247,14 @@ std::shared_ptr<const nowave::RoomMesh> NoWaveAudioProcessor::getRoomMesh() cons
     return activeRoomMesh;
 }
 
+std::shared_ptr<const std::vector<nowave::RaySegment>>
+NoWaveAudioProcessor::getRayPathsSnapshot() const
+{
+    return raytracingWorker != nullptr
+               ? raytracingWorker->getRayPathsSnapshot()
+               : nullptr;
+}
+
 void NoWaveAudioProcessor::restoreRoomFromState()
 {
     const auto sourceType = apvts.state.getProperty(nowave::StateProps::roomSourceType).toString();

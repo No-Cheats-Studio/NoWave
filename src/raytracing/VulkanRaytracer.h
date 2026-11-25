@@ -24,7 +24,8 @@ public:
     bool isAvailable() const noexcept { return context.isValid() && pipeline != VK_NULL_HANDLE; }
     bool setScene(const RoomMesh& mesh);
     bool trace(const RaytraceParameters& parameters,
-               int numRays, int maxBounces, IRBuffer& output);
+               int numRays, int maxBounces, IRBuffer& output,
+               std::vector<RaySegment>& rayPaths);
 
     const std::string& getLastError() const noexcept { return lastError; }
 
@@ -35,8 +36,6 @@ private:
         VkDeviceMemory memory { VK_NULL_HANDLE };
         VkDeviceSize size { 0 };
     };
-
-    static constexpr int kMaxTaps = 65536;
 
     bool createPipeline();
     bool createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, Buffer& buffer);
@@ -56,6 +55,8 @@ private:
     Buffer materialBuffer;
     Buffer tapBuffer;
     Buffer counterBuffer;
+    Buffer rayPathBuffer;
+    Buffer rayPathCounterBuffer;
     Buffer parametersBuffer;
 
     std::vector<GPUBVHNode> nodes;

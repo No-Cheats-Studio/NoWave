@@ -10,6 +10,7 @@ NoWaveAudioProcessorEditor::NoWaveAudioProcessorEditor(NoWaveAudioProcessor& pro
           [this](nowave::RoomPresetId presetId) { loadRoomPreset(presetId); }),
       viewport3D(
           processor.getParameterPointers(),
+          [this]() { return audioProcessor.getRayPathsSnapshot(); },
           [this]() { showStartScreen(); }),
       bottomControlBar(processor.getAPVTS(), [this] { resized(); })
 {

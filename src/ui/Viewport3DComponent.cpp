@@ -17,6 +17,7 @@ constexpr const char* kVertexShader = R"(
 layout (location = 0) in vec3 aPosition;
 layout (location = 1) in vec3 aNormal;
 layout (location = 2) in float aSurfaceType;
+layout (location = 3) in float aRayEnergy;
 
 uniform mat4 uMvp;
 uniform mat4 uModel;
@@ -24,6 +25,7 @@ uniform mat4 uModel;
 out vec3 vNormal;
 out vec3 vWorldPos;
 flat out int vSurfaceType;
+out float vRayEnergy;
 
 void main()
 {
@@ -31,6 +33,7 @@ void main()
     vWorldPos = worldPos.xyz;
     vNormal = mat3(uModel) * aNormal;
     vSurfaceType = int(aSurfaceType + 0.5);
+    vRayEnergy = aRayEnergy;
     gl_Position = uMvp * vec4(aPosition, 1.0);
 }
 )";
@@ -40,11 +43,13 @@ constexpr const char* kFragmentShader = R"(
 in vec3 vNormal;
 in vec3 vWorldPos;
 flat in int vSurfaceType;
+in float vRayEnergy;
 
 uniform vec3 uColor;
 uniform float uAlpha;
 uniform int uUseLighting;
 uniform int uUseMaterialTexture;
+uniform int uRayMode;
 
 out vec4 FragColor;
 
@@ -121,6 +126,12 @@ vec3 proceduralMaterial(int type, vec2 uv)
 
 void main()
 {
+    if (uRayMode != 0)
+    {
+        FragColor = vec4(uColor, uAlpha * clamp(vRayEnergy, 0.0, 1.0));
+        return;
+    }
+
     if (uUseLighting == 0)
     {
         FragColor = vec4(uColor, uAlpha);
@@ -144,12 +155,15 @@ struct GLVertex
     float px, py, pz;
     float nx, ny, nz;
     float surfaceType { 0.0f };
+    float rayEnergy { 1.0f };
 };
 } // namespace
 
 Viewport3DComponent::Viewport3DComponent(const ParameterPointers& paramPointers,
+                                         RayPathProvider pathProvider,
                                          std::function<void()> onChangeRoomRequested)
-    : params(paramPointers)
+    : params(paramPointers),
+      rayPathProvider(std::move(pathProvider))
 {
     roomNameLabel.setText("No Room Loaded", juce::dontSendNotification);
     roomNameLabel.setFont(juce::FontOptions(14.0f, juce::Font::bold));
@@ -303,9 +317,11 @@ void Viewport3DComponent::newOpenGLContextCreated()
     uUseLightingLoc = glGetUniformLocation(shader->getProgramID(), "uUseLighting");
     uUseMaterialTextureLoc =
         glGetUniformLocation(shader->getProgramID(), "uUseMaterialTexture");
+    uRayModeLoc = glGetUniformLocation(shader->getProgramID(), "uRayMode");
 
     createMarkerGeometry();
     createDirectionGeometry();
+    createRayGeometry();
 }
 
 void Viewport3DComponent::openGLContextClosing()
@@ -426,6 +442,29 @@ void Viewport3DComponent::createDirectionGeometry()
     glBindVertexArray(0);
 }
 
+void Viewport3DComponent::createRayGeometry()
+{
+    using namespace juce::gl;
+
+    glGenVertexArrays(1, &rayPathVao);
+    glGenBuffers(1, &rayPathVbo);
+    glBindVertexArray(rayPathVao);
+    glBindBuffer(GL_ARRAY_BUFFER, rayPathVbo);
+    glBufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(GLVertex), nullptr);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(GLVertex),
+                          reinterpret_cast<const void*>(3 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(GLVertex),
+                          reinterpret_cast<const void*>(6 * sizeof(float)));
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(GLVertex),
+                          reinterpret_cast<const void*>(7 * sizeof(float)));
+    glBindVertexArray(0);
+}
+
 void Viewport3DComponent::uploadPendingMeshIfNeeded()
 {
     using namespace juce::gl;
@@ -501,6 +540,51 @@ void Viewport3DComponent::uploadPendingMeshIfNeeded()
     glBindVertexArray(0);
 }
 
+void Viewport3DComponent::uploadRayPathsIfNeeded()
+{
+    using namespace juce::gl;
+
+    const auto newSnapshot = rayPathProvider ? rayPathProvider() : nullptr;
+    if (newSnapshot == rayPathSnapshot)
+        return;
+
+    rayPathSnapshot = newSnapshot;
+    rayPathVertexCount = 0;
+    rayPathFirst.fill(0);
+    rayPathCounts.fill(0);
+    std::vector<GLVertex> vertices;
+    if (rayPathSnapshot != nullptr)
+    {
+        std::array<std::vector<GLVertex>, 3> energyBins;
+        for (const auto& segment : *rayPathSnapshot)
+        {
+            const float energy = std::clamp(
+                (segment.start[3] + segment.end[3]) * 0.5f, 0.0f, 1.0f);
+            const size_t bin = energy < 0.15f ? 0u : (energy < 0.5f ? 1u : 2u);
+            energyBins[bin].push_back({ segment.start[0], segment.start[1], segment.start[2],
+                                        0.0f, 1.0f, 0.0f, 0.0f, energy });
+            energyBins[bin].push_back({ segment.end[0], segment.end[1], segment.end[2],
+                                        0.0f, 1.0f, 0.0f, 0.0f, energy });
+        }
+
+        vertices.reserve(rayPathSnapshot->size() * 2);
+        for (size_t bin = 0; bin < energyBins.size(); ++bin)
+        {
+            rayPathFirst[bin] = static_cast<GLint>(vertices.size());
+            rayPathCounts[bin] = static_cast<GLsizei>(energyBins[bin].size());
+            vertices.insert(vertices.end(), energyBins[bin].begin(), energyBins[bin].end());
+        }
+    }
+
+    rayPathVertexCount = static_cast<GLsizei>(vertices.size());
+    glBindBuffer(GL_ARRAY_BUFFER, rayPathVbo);
+    glBufferData(GL_ARRAY_BUFFER,
+                 static_cast<GLsizeiptr>(vertices.size() * sizeof(GLVertex)),
+                 vertices.empty() ? nullptr : vertices.data(),
+                 GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
 void Viewport3DComponent::destroyBuffers()
 {
     using namespace juce::gl;
@@ -534,6 +618,16 @@ void Viewport3DComponent::destroyBuffers()
     {
         glDeleteVertexArrays(1, &directionVao);
         directionVao = 0;
+    }
+    if (rayPathVbo != 0)
+    {
+        glDeleteBuffers(1, &rayPathVbo);
+        rayPathVbo = 0;
+    }
+    if (rayPathVao != 0)
+    {
+        glDeleteVertexArrays(1, &rayPathVao);
+        rayPathVao = 0;
     }
 }
 
@@ -578,6 +672,7 @@ void Viewport3DComponent::renderOpenGL()
         const glm::mat4 identity(1.0f);
         glUniformMatrix4fv(uMvpLoc, 1, GL_FALSE, glm::value_ptr(vp));
         glUniformMatrix4fv(uModelLoc, 1, GL_FALSE, glm::value_ptr(identity));
+        glUniform1i(uRayModeLoc, 0);
 
         // Solid shaded room interior
         glBindVertexArray(roomVao);
@@ -599,8 +694,44 @@ void Viewport3DComponent::renderOpenGL()
         glBindVertexArray(0);
     }
 
+    const bool showRayPaths = params.showRayPaths != nullptr &&
+                              params.showRayPaths->load(std::memory_order_relaxed) >= 0.5f;
+    if (showRayPaths)
+    {
+        uploadRayPathsIfNeeded();
+        if (rayPathVao != 0 && rayPathVertexCount > 0)
+        {
+            const glm::mat4 identity(1.0f);
+            glUniformMatrix4fv(uMvpLoc, 1, GL_FALSE, glm::value_ptr(vp));
+            glUniformMatrix4fv(uModelLoc, 1, GL_FALSE, glm::value_ptr(identity));
+            glUniform3f(uColorLoc, 0.20f, 0.88f, 1.0f);
+            glUniform1f(uAlphaLoc, 0.9f);
+            glUniform1i(uUseLightingLoc, 0);
+            glUniform1i(uUseMaterialTextureLoc, 0);
+            glUniform1i(uRayModeLoc, 1);
+            glDisable(GL_DEPTH_TEST);
+            glBindVertexArray(rayPathVao);
+            const GLfloat widths[] { 1.0f, 1.5f, 2.0f };
+            GLfloat supportedWidths[2] { 1.0f, 1.0f };
+            glGetFloatv(GL_ALIASED_LINE_WIDTH_RANGE, supportedWidths);
+            for (size_t bin = 0; bin < rayPathCounts.size(); ++bin)
+            {
+                if (rayPathCounts[bin] == 0)
+                    continue;
+                glLineWidth(std::clamp(widths[bin],
+                                       supportedWidths[0],
+                                       supportedWidths[1]));
+                glDrawArrays(GL_LINES, rayPathFirst[bin], rayPathCounts[bin]);
+            }
+            glBindVertexArray(0);
+            glLineWidth(1.0f);
+            glEnable(GL_DEPTH_TEST);
+        }
+    }
+
     if (markerVao != 0 && markerVertexCount > 0)
     {
+        glUniform1i(uRayModeLoc, 0);
         glUniform1i(uUseLightingLoc, 1);
         glUniform1i(uUseMaterialTextureLoc, 0);
         glUniform1f(uAlphaLoc, 1.0f);

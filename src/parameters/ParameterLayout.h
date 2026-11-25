@@ -12,6 +12,9 @@ namespace ParamIDs
 inline constexpr const char* gain = "gain";
 inline constexpr const char* inputGain = "input_gain";
 inline constexpr const char* dryWet = "dry_wet";
+inline constexpr const char* rayDensity = "ray_density";
+inline constexpr const char* rayBounces = "ray_bounces";
+inline constexpr const char* showRayPaths = "show_ray_paths";
 inline constexpr const char* outputType = "output_type";
 inline constexpr const char* inputType = "input_type";
 inline constexpr const char* microphonePattern = "microphone_pattern";
@@ -50,6 +53,9 @@ struct ParameterPointers
     std::atomic<float>* gainDb = nullptr;
     std::atomic<float>* inputGainDb = nullptr;
     std::atomic<float>* dryWetPercent = nullptr;
+    std::atomic<float>* rayDensity = nullptr;
+    std::atomic<float>* rayBounces = nullptr;
+    std::atomic<float>* showRayPaths = nullptr;
     std::atomic<float>* outputType = nullptr;
     std::atomic<float>* inputType = nullptr;
     std::atomic<float>* microphonePattern = nullptr;

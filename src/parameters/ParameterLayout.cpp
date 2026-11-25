@@ -82,6 +82,9 @@ void ParameterPointers::bind(juce::AudioProcessorValueTreeState& apvts) noexcept
     gainDb = apvts.getRawParameterValue(ParamIDs::gain);
     inputGainDb = apvts.getRawParameterValue(ParamIDs::inputGain);
     dryWetPercent = apvts.getRawParameterValue(ParamIDs::dryWet);
+    rayDensity = apvts.getRawParameterValue(ParamIDs::rayDensity);
+    rayBounces = apvts.getRawParameterValue(ParamIDs::rayBounces);
+    showRayPaths = apvts.getRawParameterValue(ParamIDs::showRayPaths);
     outputType = apvts.getRawParameterValue(ParamIDs::outputType);
     inputType = apvts.getRawParameterValue(ParamIDs::inputType);
     microphonePattern = apvts.getRawParameterValue(ParamIDs::microphonePattern);
@@ -133,6 +136,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f),
         50.0f,
         juce::AudioParameterFloatAttributes().withLabel("%")));
+
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{ParamIDs::rayDensity, 1},
+        "Ray Density",
+        kMinRayCount,
+        kMaxRayCount,
+        kDefaultRayCount));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{ParamIDs::rayBounces, 1},
+        "Max Ray Bounces",
+        0,
+        kMaxRayBounces,
+        kDefaultRayBounces));
+    params.push_back(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID{ParamIDs::showRayPaths, 1},
+        "Visualize Ray Paths",
+        false));
 
     addChoiceParam(params, ParamIDs::outputType, "Output Type",
                    { "Vocal", "Speaker Box", "PA" },

@@ -1,15 +1,18 @@
 #pragma once
 
 #include "parameters/ParameterLayout.h"
+#include "raytracing/BVHNode.h"
 #include "scene/RoomMesh.h"
 
 #include <atomic>
+#include <array>
 #include <functional>
 #include <glm/vec3.hpp>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_opengl/juce_opengl.h>
 #include <memory>
 #include <mutex>
+#include <vector>
 
 namespace nowave
 {
@@ -18,7 +21,11 @@ class Viewport3DComponent final : public juce::Component,
                                   private juce::Timer
 {
 public:
+    using RayPathProvider =
+        std::function<std::shared_ptr<const std::vector<RaySegment>>()>;
+
     Viewport3DComponent(const ParameterPointers& paramPointers,
+                        RayPathProvider rayPathProvider,
                         std::function<void()> onChangeRoomRequested);
     ~Viewport3DComponent() override;
 
@@ -38,11 +45,14 @@ public:
 
 private:
     void uploadPendingMeshIfNeeded();
+    void uploadRayPathsIfNeeded();
     void createMarkerGeometry();
     void createDirectionGeometry();
+    void createRayGeometry();
     void destroyBuffers();
 
     const ParameterPointers& params;
+    RayPathProvider rayPathProvider;
 
     juce::OpenGLContext openGLContext;
     std::unique_ptr<juce::OpenGLShaderProgram> shader;
@@ -53,6 +63,7 @@ private:
     GLint uAlphaLoc { -1 };
     GLint uUseLightingLoc { -1 };
     GLint uUseMaterialTextureLoc { -1 };
+    GLint uRayModeLoc { -1 };
 
     GLuint roomVao { 0 };
     GLuint roomVbo { 0 };
@@ -64,6 +75,12 @@ private:
     GLuint directionVao { 0 };
     GLuint directionVbo { 0 };
     GLsizei directionVertexCount { 0 };
+    GLuint rayPathVao { 0 };
+    GLuint rayPathVbo { 0 };
+    GLsizei rayPathVertexCount { 0 };
+    std::array<GLint, 3> rayPathFirst {};
+    std::array<GLsizei, 3> rayPathCounts {};
+    std::shared_ptr<const std::vector<RaySegment>> rayPathSnapshot;
 
     std::mutex meshMutex;
     std::shared_ptr<const RoomMesh> pendingMesh;

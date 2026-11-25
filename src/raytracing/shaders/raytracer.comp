@@ -33,6 +33,11 @@ struct RayTap {
     float pad1;
 };
 
+struct RaySegment {
+    vec4 startPosition;
+    vec4 endPosition;
+};
+
 layout(set = 0, binding = 0, std430) readonly buffer BVHBuf {
     BVHNode nodes[];
 };
@@ -58,6 +63,12 @@ layout(set = 0, binding = 5, std430) readonly buffer ParametersBuf {
     vec4 physics;
     ivec4 limits;
 } simulation;
+layout(set = 0, binding = 6, std430) buffer RayPathBuf {
+    RaySegment rayPaths[];
+};
+layout(set = 0, binding = 7, std430) buffer RayPathCounterBuf {
+    uint rayPathCount;
+};
 
 bool slab(float origin, float direction, float lower, float upper,
           inout float nearT, inout float farT) {
@@ -152,11 +163,19 @@ bool traverseBVH(vec3 ro, vec3 rd, float maxDistance,
     return hitTri >= 0;
 }
 
-vec3 fibonacciDirection(int index, int count) {
-    float y = 1.0 - 2.0 * (float(index) + 0.5) / float(count);
-    float radius = sqrt(max(0.0, 1.0 - y * y));
+vec3 fibonacciDirection(int index, int count, vec3 axis) {
+    float cosine = 1.0 - 2.0 * (float(index) + 0.5) / float(count);
+    float radius = sqrt(max(0.0, 1.0 - cosine * cosine));
     float angle = 2.39996323 * float(index);
-    return vec3(cos(angle) * radius, y, sin(angle) * radius);
+    vec3 normal = normalize(axis);
+    vec3 helper = abs(normal.y) < 0.99
+                      ? vec3(0.0, 1.0, 0.0)
+                      : vec3(1.0, 0.0, 0.0);
+    vec3 tangent = normalize(cross(helper, normal));
+    vec3 bitangent = cross(normal, tangent);
+    return normalize(normal * cosine +
+                     tangent * (radius * cos(angle)) +
+                     bitangent * (radius * sin(angle)));
 }
 
 uint hash(uint value) {
@@ -195,6 +214,22 @@ float patternGain(int pattern, float forwardDot) {
     return abs(cosine);
 }
 
+float sourcePatternGain(int pattern, float forwardDot) {
+    return patternGain(pattern, forwardDot);
+}
+
+void recordRaySegment(vec3 start, vec3 end, float energy) {
+    if (simulation.physics.w <= 0.5)
+        return;
+
+    uint pathIndex = atomicAdd(rayPathCount, 1u);
+    if (pathIndex < uint(rayPaths.length())) {
+        float boundedEnergy = clamp(energy, 0.0, 1.0);
+        rayPaths[pathIndex].startPosition = vec4(start, boundedEnergy);
+        rayPaths[pathIndex].endPosition = vec4(end, boundedEnergy);
+    }
+}
+
 void addTap(float pathDistance, float remainingDistance,
             float pathGainLow, float pathGainMid, float pathGainHigh,
             int sourceIndex, int receiverIndex, float receiverGain) {
@@ -229,10 +264,10 @@ void main() {
     int sourceIndex = workIndex / numRays;
     int rayIndex = workIndex - sourceIndex * numRays;
     vec3 origin = simulation.sourcePositions[sourceIndex].xyz;
-    vec3 direction = fibonacciDirection(rayIndex, numRays);
-    float sourceGain = patternGain(simulation.patterns.x,
-                                   dot(simulation.sourceDirections[sourceIndex].xyz,
-                                       direction));
+    vec3 sourceDirection = normalize(simulation.sourceDirections[sourceIndex].xyz);
+    vec3 direction = fibonacciDirection(rayIndex, numRays, sourceDirection);
+    float sourceGain = sourcePatternGain(simulation.patterns.x,
+                                         dot(sourceDirection, direction));
     float pathDistance = 0.0;
     float pathGainLow = sourceGain;
     float pathGainMid = sourceGain;
@@ -268,15 +303,25 @@ void main() {
                         simulation.patterns[receiverIndex + 1],
                         dot(simulation.receiverDirections[receiverIndex].xyz,
                             -receiverDirection));
-                    float directSourceGain = patternGain(
+                    float directSourceGain = sourcePatternGain(
                         simulation.patterns.x,
                         dot(simulation.sourceDirections[sourceIndex].xyz,
                             receiverDirection));
-                    addTap(pathDistance, sphereDistance,
-                           bounce == 0 ? directSourceGain : pathGainLow,
-                           bounce == 0 ? directSourceGain : pathGainMid,
-                           bounce == 0 ? directSourceGain : pathGainHigh,
-                           sourceIndex, receiverIndex, receiverGain);
+                    float tapGainLow = bounce == 0 ? directSourceGain : pathGainLow;
+                    float tapGainMid = bounce == 0 ? directSourceGain : pathGainMid;
+                    float tapGainHigh = bounce == 0 ? directSourceGain : pathGainHigh;
+                    if (max(tapGainLow, max(tapGainMid, tapGainHigh)) > 0.0) {
+                        addTap(pathDistance, sphereDistance,
+                               tapGainLow, tapGainMid, tapGainHigh,
+                               sourceIndex, receiverIndex, receiverGain);
+                        float totalDistance = pathDistance + sphereDistance;
+                        float energy = (tapGainLow + tapGainMid + tapGainHigh) / 3.0 *
+                                       receiverGain / max(totalDistance, 0.1);
+                        recordRaySegment(
+                            origin,
+                            origin + receiverDirection * sphereDistance,
+                            energy);
+                    }
                 }
             }
         }
@@ -289,6 +334,11 @@ void main() {
         vec3 hitNormal;
         if (!traverseBVH(origin, direction, 1e30, hitT, hitTri, hitNormal))
             break;
+
+        float hitDistance = pathDistance + hitT;
+        float rayEnergy = (pathGainLow + pathGainMid + pathGainHigh) / 3.0 /
+                          max(hitDistance, 0.1);
+        recordRaySegment(origin, origin + direction * hitT, rayEnergy);
 
         pathDistance += hitT;
         GPUTriangle tri = tris[hitTri];

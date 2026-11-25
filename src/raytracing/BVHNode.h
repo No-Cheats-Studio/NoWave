@@ -75,5 +75,12 @@ struct alignas(16) RayTap
     float pad1;
 };
 static_assert(sizeof(RayTap) == 32);
+
+struct alignas(16) RaySegment
+{
+    float start[4];
+    float end[4];
+};
+static_assert(sizeof(RaySegment) == 32);
 } // namespace nowave
 

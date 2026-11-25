@@ -7,6 +7,15 @@
 
 namespace nowave
 {
+inline constexpr int kMinRayCount = 128;
+inline constexpr int kDefaultRayCount = 1024;
+inline constexpr int kMaxRayCount = 8192;
+inline constexpr int kDefaultRayBounces = 10;
+inline constexpr int kMaxRayBounces = 16;
+inline constexpr int kMaxRaySegments =
+    kMaxRayCount * 2 * (kMaxRayBounces + 2 * (kMaxRayBounces + 1));
+inline constexpr int kMaxRayTaps = 1048576;
+
 enum class OutputType : int32_t
 {
     Vocal = 0,

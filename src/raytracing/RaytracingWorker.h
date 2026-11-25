@@ -2,6 +2,7 @@
 
 #include "audio/IRBuffer.h"
 #include "audio/IRUpdateQueue.h"
+#include "raytracing/BVHNode.h"
 #include "parameters/ParameterLayout.h"
 #include "scene/RoomMesh.h"
 
@@ -10,7 +11,9 @@
 #include <cfloat>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <thread>
+#include <vector>
 
 namespace nowave
 {
@@ -39,12 +42,14 @@ public:
     void stop();
 
     bool isVulkanAvailable() const noexcept;
+    std::shared_ptr<const std::vector<RaySegment>> getRayPathsSnapshot() const;
 
 private:
     void threadFunc();
     bool simulationParametersChanged() noexcept;
     void recordSimulationParameters() noexcept;
     RaytraceParameters makeRaytraceParameters(int maxIRSamples) const noexcept;
+    void publishRayPaths(std::vector<RaySegment> paths);
     void synthesizeDirectPath(const RaytraceParameters& parameters,
                               IRBuffer& ir) const noexcept;
 
@@ -64,6 +69,8 @@ private:
     float lastDstYaw { FLT_MAX }, lastDstPitch { FLT_MAX };
     int lastOutputType { -1 }, lastInputType { -1 };
     int lastMicPattern { -1 }, lastLeftMicPattern { -1 }, lastRightMicPattern { -1 };
+    int lastRayDensity { -1 }, lastRayBounces { -1 };
+    bool lastShowRayPaths { false };
     std::shared_ptr<const RoomMesh> lastMesh;
 
     static constexpr float kPositionChangeDeltaM   = 0.01f;  // 1 cm threshold
@@ -71,8 +78,9 @@ private:
     static constexpr float kSpeedOfSound           = 343.0f; // m/s
     static constexpr float kListenerRadius         = 0.2f;   // metres
     static constexpr float kRotationChangeDeltaDeg = 1.0f;
-    static constexpr int   kNumRays                = 1024;
-    static constexpr int   kMaxBounces             = 10;
+
+    mutable std::mutex rayPathsMutex;
+    std::shared_ptr<const std::vector<RaySegment>> rayPathsSnapshot;
 
     std::unique_ptr<VulkanRaytracer> raytracer;
 };

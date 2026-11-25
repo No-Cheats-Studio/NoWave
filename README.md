@@ -51,6 +51,15 @@ für ALSA, JACK, X11, FreeType, Fontconfig und OpenGL.
 Die Vulkan-Raytracing-Engine berechnet die Raumimpulsantwort in einem Hintergrund-Worker.
 Ist zur Laufzeit kein Vulkan-Compute-Gerät verfügbar, wird eine direkte Schallverbindung
 als Fallback verwendet.
+Mit **Show Rays** lassen sich die berechneten Strahlwege im 3D-Raum einblenden.
+**Ray Density** stellt die Anzahl der ausgesendeten Rays von 128 bis 8192 ein:
+höhere Werte verbessern die statistische Qualität, benötigen aber mehr Rechenzeit.
+**Max Bounces** begrenzt die Anzahl der Reflexionen pro Ray (0–16). Rays starten
+über die gesamte Kugel verteilt und werden gemäß der weichen, nach vorn gerichteten
+Cardioid-Richtcharakteristik des Lautsprechers gewichtet. Dadurch gibt es keinen
+harten Abstrahlkegel; die Energie klingt zur Seite und nach hinten hin aus. Sichtbare
+Verbindungssegmente zeigen nur freie Schallwege zum Empfänger. Transparenz und
+Linienstärke spiegeln die relative Pfadenergie wider.
 
 ## Akustische Konfiguration
 

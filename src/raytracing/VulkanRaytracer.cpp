@@ -11,7 +11,7 @@ namespace nowave
 {
 namespace
 {
-constexpr uint32_t kDescriptorCount = 6;
+constexpr uint32_t kDescriptorCount = 8;
 }
 
 VulkanRaytracer::~VulkanRaytracer()
@@ -19,6 +19,8 @@ VulkanRaytracer::~VulkanRaytracer()
     if (context.getDevice() != VK_NULL_HANDLE)
     {
         vkDeviceWaitIdle(context.getDevice());
+        destroyBuffer(rayPathCounterBuffer);
+        destroyBuffer(rayPathBuffer);
         destroyBuffer(counterBuffer);
         destroyBuffer(tapBuffer);
         destroyBuffer(parametersBuffer);
@@ -48,9 +50,13 @@ bool VulkanRaytracer::initialize()
     }
 
     if (!createPipeline() ||
-        !createBuffer(static_cast<VkDeviceSize>(kMaxTaps) * sizeof(RayTap),
+        !createBuffer(static_cast<VkDeviceSize>(kMaxRayTaps) * sizeof(RayTap),
                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, tapBuffer) ||
         !createBuffer(sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, counterBuffer) ||
+        !createBuffer(static_cast<VkDeviceSize>(kMaxRaySegments) * sizeof(RaySegment),
+                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, rayPathBuffer) ||
+        !createBuffer(sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                      rayPathCounterBuffer) ||
         !createBuffer(sizeof(RaytraceParameters), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                       parametersBuffer))
         return false;
@@ -229,7 +235,7 @@ void VulkanRaytracer::updateDescriptors()
 {
     const Buffer* buffers[] = {
         &nodeBuffer, &triangleBuffer, &materialBuffer, &tapBuffer, &counterBuffer,
-        &parametersBuffer
+        &parametersBuffer, &rayPathBuffer, &rayPathCounterBuffer
     };
     VkDescriptorBufferInfo bufferInfos[kDescriptorCount] {};
     VkWriteDescriptorSet writes[kDescriptorCount] {};
@@ -307,8 +313,10 @@ bool VulkanRaytracer::setScene(const RoomMesh& mesh)
 }
 
 bool VulkanRaytracer::trace(const RaytraceParameters& parameters,
-                            int numRays, int maxBounces, IRBuffer& output)
+                            int numRays, int maxBounces, IRBuffer& output,
+                            std::vector<RaySegment>& rayPaths)
 {
+    rayPaths.clear();
     if (!isAvailable() || nodeBuffer.handle == VK_NULL_HANDLE ||
         numRays <= 0 || maxBounces < 0 ||
         parameters.configuration[0] < 1 || parameters.configuration[0] > 2 ||
@@ -324,11 +332,12 @@ bool VulkanRaytracer::trace(const RaytraceParameters& parameters,
     RaytraceParameters uploadedParameters = parameters;
     uploadedParameters.limits[0] = std::min(
         uploadedParameters.limits[0], static_cast<int>(output.channels[0].size()));
-    uploadedParameters.limits[1] = kMaxTaps;
+    uploadedParameters.limits[1] = kMaxRayTaps;
     uploadedParameters.limits[2] = numRays;
     uploadedParameters.limits[3] = maxBounces;
     if (uploadedParameters.limits[0] <= 0 ||
         !writeBuffer(counterBuffer, &zero, sizeof(zero)) ||
+        !writeBuffer(rayPathCounterBuffer, &zero, sizeof(zero)) ||
         !writeBuffer(parametersBuffer, &uploadedParameters, sizeof(uploadedParameters)))
         return false;
     output.sourceCount = uploadedParameters.configuration[0];
@@ -382,7 +391,7 @@ bool VulkanRaytracer::trace(const RaytraceParameters& parameters,
         lastError = "Failed to map Vulkan tap counter.";
         return false;
     }
-    const uint32_t count = std::min(*tapCount, static_cast<uint32_t>(kMaxTaps));
+    const uint32_t count = std::min(*tapCount, static_cast<uint32_t>(kMaxRayTaps));
     vkUnmapMemory(context.getDevice(), counterBuffer.memory);
 
     RayTap* taps = nullptr;
@@ -415,6 +424,38 @@ bool VulkanRaytracer::trace(const RaytraceParameters& parameters,
     }
     if (tapBytes > 0)
         vkUnmapMemory(context.getDevice(), tapBuffer.memory);
+
+    if (uploadedParameters.physics[3] > 0.5f)
+    {
+        uint32_t* rayPathCount = nullptr;
+        if (vkMapMemory(context.getDevice(), rayPathCounterBuffer.memory, 0,
+                        sizeof(uint32_t), 0,
+                        reinterpret_cast<void**>(&rayPathCount)) != VK_SUCCESS)
+        {
+            lastError = "Failed to map Vulkan ray path counter.";
+            return false;
+        }
+        const uint32_t pathCount =
+            std::min(*rayPathCount, static_cast<uint32_t>(kMaxRaySegments));
+        vkUnmapMemory(context.getDevice(), rayPathCounterBuffer.memory);
+
+        const VkDeviceSize pathBytes =
+            static_cast<VkDeviceSize>(pathCount) * sizeof(RaySegment);
+        RaySegment* paths = nullptr;
+        if (pathBytes > 0 &&
+            vkMapMemory(context.getDevice(), rayPathBuffer.memory, 0, pathBytes, 0,
+                        reinterpret_cast<void**>(&paths)) != VK_SUCCESS)
+        {
+            lastError = "Failed to map Vulkan ray path buffer.";
+            return false;
+        }
+        if (pathBytes > 0)
+        {
+            rayPaths.assign(paths, paths + pathCount);
+            vkUnmapMemory(context.getDevice(), rayPathBuffer.memory);
+        }
+    }
+
     if (output.receiverCount == 1)
     {
         for (size_t band = 0; band < IRBuffer::kBandCount; ++band)

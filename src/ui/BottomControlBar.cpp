@@ -192,6 +192,38 @@ BottomControlBar::BottomControlBar(juce::AudioProcessorValueTreeState& apvts,
     rightPatternAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
         apvts, ParamIDs::rightMicrophonePattern, rightPatternBox);
 
+    showRayPathsButton.setButtonText("Show Rays");
+    showRayPathsButton.setColour(juce::ToggleButton::textColourId,
+                                 juce::Colour(0xffcbd5e1));
+    showRayPathsButton.setTooltip(
+        "Show the ray paths used by the acoustic simulation in the room view.");
+    addAndMakeVisible(showRayPathsButton);
+    showRayPathsAtt =
+        std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+            apvts, ParamIDs::showRayPaths, showRayPathsButton);
+
+    configureAxisSlider(rayDensitySlider, rayDensityLabel, "Ray Density",
+                        juce::Colour(0xff22d3ee), *this);
+    rayDensitySlider.setRange(kMinRayCount, kMaxRayCount, 1.0);
+    rayDensitySlider.setNumDecimalPlacesToDisplay(0);
+    rayDensitySlider.setTextValueSuffix(" rays");
+    rayDensitySlider.setTooltip(
+        "Number of emitted rays. Higher values improve ray-tracing quality but take longer.");
+    rayDensityAtt =
+        std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+            apvts, ParamIDs::rayDensity, rayDensitySlider);
+
+    configureAxisSlider(rayBouncesSlider, rayBouncesLabel, "Max Bounces",
+                        juce::Colour(0xff22d3ee), *this);
+    rayBouncesSlider.setRange(0, kMaxRayBounces, 1.0);
+    rayBouncesSlider.setNumDecimalPlacesToDisplay(0);
+    rayBouncesSlider.setTextValueSuffix(" bounces");
+    rayBouncesSlider.setTooltip(
+        "Maximum number of reflections traced for each ray.");
+    rayBouncesAtt =
+        std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+            apvts, ParamIDs::rayBounces, rayBouncesSlider);
+
     inputTypeBox.onChange = [this]
     {
         updateInputMenuAvailability();
@@ -303,19 +335,31 @@ void BottomControlBar::resized()
         if (box->isVisible())
             ++visibleChoiceCount;
 
-    int visibleChoiceIndex = 0;
+    int remainingControls = visibleChoiceCount + 3;
+    const auto takeControlCell = [&choices, &remainingControls]
+    {
+        const int cellWidth = choices.getWidth() / remainingControls;
+        --remainingControls;
+        return choices.removeFromLeft(cellWidth).reduced(4, 0);
+    };
+
     for (int i = 0; i < 5; ++i)
     {
         if (!choiceBoxes[i]->isVisible())
             continue;
 
-        const int remainingChoices = visibleChoiceCount - visibleChoiceIndex;
-        const int choiceWidth = choices.getWidth() / remainingChoices;
-        auto cell = choices.removeFromLeft(choiceWidth).reduced(4, 0);
+        auto cell = takeControlCell();
         choiceLabels[i]->setBounds(cell.removeFromTop(14));
         choiceBoxes[i]->setBounds(cell);
-        ++visibleChoiceIndex;
     }
+
+    showRayPathsButton.setBounds(takeControlCell());
+    auto densityCell = takeControlCell();
+    rayDensityLabel.setBounds(densityCell.removeFromTop(14));
+    rayDensitySlider.setBounds(densityCell);
+    auto bouncesCell = takeControlCell();
+    rayBouncesLabel.setBounds(bouncesCell.removeFromTop(14));
+    rayBouncesSlider.setBounds(bouncesCell);
     area.removeFromTop(6);
 
     const int masterWidth = 190;

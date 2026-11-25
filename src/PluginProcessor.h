@@ -9,6 +9,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <memory>
 #include <mutex>
+#include <vector>
 
 class NoWaveAudioProcessor final : public juce::AudioProcessor
 {
@@ -47,6 +48,7 @@ public:
     const nowave::ParameterPointers& getParameterPointers() const noexcept { return params; }
 
     nowave::IRUpdateQueue& getIRQueue() noexcept { return reverbEngine.getIRQueue(); }
+    std::shared_ptr<const std::vector<nowave::RaySegment>> getRayPathsSnapshot() const;
 
     void setRoomMesh(std::shared_ptr<const nowave::RoomMesh> mesh,
                      const juce::String& sourceType,

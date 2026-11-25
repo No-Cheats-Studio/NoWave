@@ -11,11 +11,29 @@ namespace nowave
 {
 namespace
 {
-constexpr int kMaxTaps = 65536;
-
 float parameterValue(const std::atomic<float>* parameter, float fallback) noexcept
 {
     return parameter != nullptr ? parameter->load(std::memory_order_relaxed) : fallback;
+}
+
+int rayDensityValue(const ParameterPointers& parameters) noexcept
+{
+    const int value = static_cast<int>(std::round(
+        parameterValue(parameters.rayDensity, static_cast<float>(kDefaultRayCount))));
+    return std::clamp(value, kMinRayCount, kMaxRayCount);
+}
+
+int rayBouncesValue(const ParameterPointers& parameters) noexcept
+{
+    const int value = static_cast<int>(std::round(
+        parameterValue(parameters.rayBounces,
+                       static_cast<float>(kDefaultRayBounces))));
+    return std::clamp(value, 0, kMaxRayBounces);
+}
+
+bool rayPathsEnabled(const ParameterPointers& parameters) noexcept
+{
+    return parameterValue(parameters.showRayPaths, 0.0f) >= 0.5f;
 }
 
 int choiceValue(const std::atomic<float>* parameter, int fallback, int maximum) noexcept
@@ -53,6 +71,7 @@ void RaytracingWorker::start(double rate)
     stop();
     sampleRate = rate > 0.0 ? rate : 44100.0;
     lastMesh.reset();
+    publishRayPaths({});
     vulkanAvailable.store(false, std::memory_order_release);
     running.store(true, std::memory_order_release);
     thread = std::thread(&RaytracingWorker::threadFunc, this);
@@ -68,6 +87,21 @@ void RaytracingWorker::stop()
 bool RaytracingWorker::isVulkanAvailable() const noexcept
 {
     return vulkanAvailable.load(std::memory_order_acquire);
+}
+
+std::shared_ptr<const std::vector<RaySegment>>
+RaytracingWorker::getRayPathsSnapshot() const
+{
+    const std::lock_guard<std::mutex> lock(rayPathsMutex);
+    return rayPathsSnapshot;
+}
+
+void RaytracingWorker::publishRayPaths(std::vector<RaySegment> paths)
+{
+    auto snapshot =
+        std::make_shared<const std::vector<RaySegment>>(std::move(paths));
+    const std::lock_guard<std::mutex> lock(rayPathsMutex);
+    rayPathsSnapshot = std::move(snapshot);
 }
 
 bool RaytracingWorker::simulationParametersChanged() noexcept
@@ -100,7 +134,10 @@ bool RaytracingWorker::simulationParametersChanged() noexcept
            choiceValue(params.leftMicrophonePattern,
                        static_cast<int>(MicrophonePattern::Cardioid), 3) != lastLeftMicPattern ||
            choiceValue(params.rightMicrophonePattern,
-                       static_cast<int>(MicrophonePattern::Cardioid), 3) != lastRightMicPattern;
+                       static_cast<int>(MicrophonePattern::Cardioid), 3) != lastRightMicPattern ||
+           rayDensityValue(params) != lastRayDensity ||
+           rayBouncesValue(params) != lastRayBounces ||
+           rayPathsEnabled(params) != lastShowRayPaths;
 }
 
 void RaytracingWorker::recordSimulationParameters() noexcept
@@ -123,6 +160,9 @@ void RaytracingWorker::recordSimulationParameters() noexcept
                                      static_cast<int>(MicrophonePattern::Cardioid), 3);
     lastRightMicPattern = choiceValue(params.rightMicrophonePattern,
                                       static_cast<int>(MicrophonePattern::Cardioid), 3);
+    lastRayDensity = rayDensityValue(params);
+    lastRayBounces = rayBouncesValue(params);
+    lastShowRayPaths = rayPathsEnabled(params);
 }
 
 RaytraceParameters RaytracingWorker::makeRaytraceParameters(int maxIRSamples) const noexcept
@@ -214,11 +254,11 @@ RaytraceParameters RaytracingWorker::makeRaytraceParameters(int maxIRSamples) co
     result.physics[0] = kListenerRadius;
     result.physics[1] = kSpeedOfSound;
     result.physics[2] = static_cast<float>(sampleRate);
-    result.physics[3] = 1.0e-4f;
+    result.physics[3] = rayPathsEnabled(params) ? 1.0f : 0.0f;
     result.limits[0] = maxIRSamples;
-    result.limits[1] = kMaxTaps;
-    result.limits[2] = kNumRays;
-    result.limits[3] = kMaxBounces;
+    result.limits[1] = kMaxRayTaps;
+    result.limits[2] = rayDensityValue(params);
+    result.limits[3] = rayBouncesValue(params);
     return result;
 }
 
@@ -311,6 +351,7 @@ void RaytracingWorker::threadFunc()
         const bool parametersChanged = simulationParametersChanged();
         if (meshChanged || parametersChanged)
         {
+            publishRayPaths({});
             if (meshChanged)
             {
                 sceneReady = mesh != nullptr && mesh->isValid() && gpuReady &&
@@ -322,14 +363,20 @@ void RaytracingWorker::threadFunc()
 
             IRBuffer* ir = irQueue.getWriteBuffer();
             ir->clear();
+            std::vector<RaySegment> rayPaths;
             if (mesh != nullptr && mesh->isValid())
             {
                 const RaytraceParameters traceParameters =
                     makeRaytraceParameters(static_cast<int>(ir->channels[0].size()));
-                const bool traced = sceneReady &&
-                    raytracer->trace(traceParameters, kNumRays, kMaxBounces, *ir);
+                const bool traced = sceneReady && raytracer->trace(
+                    traceParameters,
+                    traceParameters.limits[2],
+                    traceParameters.limits[3],
+                    *ir,
+                    rayPaths);
                 if (!traced)
                 {
+                    rayPaths.clear();
                     if (sceneReady)
                         juce::Logger::writeToLog("NoWave: GPU raytrace failed; using direct-path fallback. " +
                                                  juce::String(raytracer->getLastError()));
@@ -350,6 +397,7 @@ void RaytracingWorker::threadFunc()
                 hasPublishedIR = false;
             }
 
+            publishRayPaths(std::move(rayPaths));
             lastMesh = mesh;
             recordSimulationParameters();
         }
