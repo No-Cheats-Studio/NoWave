@@ -1,0 +1,9 @@
+Package: nowave
+Version: @VERSION@
+Section: sound
+Priority: optional
+Architecture: amd64
+Maintainer: NoWave <noreply@example.invalid>
+Depends: libc6, libstdc++6, libasound2, libjack-jackd2-0, libfreetype6, libfontconfig1, libx11-6, libxcomposite1, libxcursor1, libxext6, libxinerama1, libxrandr2, libxrender1, libgl1, libglu1-mesa, libvulkan1
+Description: NoWave room acoustics audio plugin
+ NoWave is a JUCE-based VST3 plugin and standalone application for room acoustics.

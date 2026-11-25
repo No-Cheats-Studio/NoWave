@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=NoWave
+Comment=Room acoustics audio application
+Exec=NoWave
+Terminal=false
+Categories=AudioVideo;Audio;

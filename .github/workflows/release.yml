@@ -11,6 +11,11 @@ on:
         description: "Release notes in Markdown"
         required: true
         type: string
+      prerelease:
+        description: "Publish this release as a pre-release"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -65,11 +70,36 @@ jobs:
           Copy-Item $ufbxLicense -Destination (Join-Path $licenseDirectory "ufbx-LICENSE.txt")
           Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $archive -Force
 
+      - name: Build Windows installer
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag_name }}
+        run: |
+          choco install innosetup --yes --no-progress
+          $safeTag = $env:RELEASE_TAG -replace '[^A-Za-z0-9._-]', '-'
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          $buildDir = Join-Path $env:GITHUB_WORKSPACE "build\release\NoWave_artefacts\Release"
+          $license = Join-Path $env:GITHUB_WORKSPACE "build\release\_deps\ufbx-src\LICENSE"
+          $installer = Join-Path $env:GITHUB_WORKSPACE "NoWave-$safeTag-Windows-Installer.exe"
+
+          if (!(Test-Path $iscc)) {
+            throw "Inno Setup compiler was not found: $iscc"
+          }
+          & $iscc "/O$env:GITHUB_WORKSPACE" "/FNoWave-$safeTag-Windows-Installer" "/DAppVersion=`"$safeTag`"" "/DBuildDir=`"$buildDir`"" "/DLicenseFile=`"$license`"" "packaging\windows\NoWave.iss"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup failed with exit code $LASTEXITCODE"
+          }
+          if (!(Test-Path $installer)) {
+            throw "Windows installer was not produced: $installer"
+          }
+
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: NoWave-Windows
-          path: NoWave-*-Windows.zip
+          path: |
+            NoWave-*-Windows.zip
+            NoWave-*-Windows-Installer.exe
           if-no-files-found: error
 
   build-linux:
@@ -117,11 +147,44 @@ jobs:
           cp "$ufbx_license" "$stage/THIRD_PARTY_LICENSES/ufbx-LICENSE.txt"
           tar -czf "$archive" -C "$stage" .
 
+      - name: Build Linux installer
+        env:
+          RELEASE_TAG: ${{ inputs.tag_name }}
+        run: |
+          safe_tag="$(printf '%s' "$RELEASE_TAG" | sed 's/[^A-Za-z0-9._-]/-/g')"
+          version="$(printf '%s' "$RELEASE_TAG" | sed -E 's/^v//; s/-/~/g; s/[^A-Za-z0-9.+~]/./g; s/[.+~]+$//')"
+          [[ "$version" =~ ^[0-9] ]] || { echo "Release tag must produce a Debian version starting with a digit"; exit 1; }
+          package_root="$RUNNER_TEMP/nowave-deb"
+          installer="$GITHUB_WORKSPACE/NoWave-$safe_tag-Linux-Installer.deb"
+          standalone="$GITHUB_WORKSPACE/build/linux-release/NoWave_artefacts/Release/Standalone/NoWave"
+          vst3="$GITHUB_WORKSPACE/build/linux-release/NoWave_artefacts/Release/VST3/NoWave.vst3"
+          ufbx_license="$GITHUB_WORKSPACE/build/linux-release/_deps/ufbx-src/LICENSE"
+
+          test -x "$standalone" || { echo "Standalone executable was not produced: $standalone"; exit 1; }
+          test -d "$vst3" || { echo "VST3 bundle was not produced: $vst3"; exit 1; }
+          test -f "$ufbx_license" || { echo "ufbx license was not found: $ufbx_license"; exit 1; }
+
+          mkdir -p "$package_root/DEBIAN" \
+            "$package_root/usr/bin" \
+            "$package_root/usr/lib/vst3" \
+            "$package_root/usr/share/applications" \
+            "$package_root/usr/share/doc/nowave/THIRD_PARTY_LICENSES"
+          sed "s/@VERSION@/$version/" packaging/linux/control > "$package_root/DEBIAN/control"
+          cp "$standalone" "$package_root/usr/bin/NoWave"
+          cp -a "$vst3" "$package_root/usr/lib/vst3/"
+          cp packaging/linux/nowave.desktop "$package_root/usr/share/applications/nowave.desktop"
+          cp "$ufbx_license" "$package_root/usr/share/doc/nowave/THIRD_PARTY_LICENSES/ufbx-LICENSE.txt"
+          chmod 755 "$package_root/usr/bin/NoWave"
+          dpkg-deb --build --root-owner-group "$package_root" "$installer"
+          dpkg-deb --info "$installer"
+
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
           name: NoWave-Linux
-          path: NoWave-*-Linux.tar.gz
+          path: |
+            NoWave-*-Linux.tar.gz
+            NoWave-*-Linux-Installer.deb
           if-no-files-found: error
 
   publish-release:
@@ -147,8 +210,11 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: NoWave ${{ inputs.tag_name }}
           body: ${{ inputs.release_notes }}
+          prerelease: ${{ inputs.prerelease }}
           files: |
             release-artifacts/NoWave-*-Windows.zip
+            release-artifacts/NoWave-*-Windows-Installer.exe
             release-artifacts/NoWave-*-Linux.tar.gz
+            release-artifacts/NoWave-*-Linux-Installer.deb
           fail_on_unmatched_files: true
-          make_latest: true
+          make_latest: ${{ !inputs.prerelease }}

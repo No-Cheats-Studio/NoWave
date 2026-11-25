@@ -2,6 +2,18 @@
 
 C++20 VST3 & Standalone Audio Plugin built with JUCE and CMake.
 
+NoWave ist ein Produkt von **no-cheats.de**. Es ist ein Audioeffekt zum Erkunden und
+Gestalten räumlicher Akustik: Das Plugin berechnet aus Raumgeometrie, Oberflächenmaterialien,
+Schallquellen und Mikrofonpositionen eine Raumimpulsantwort und wendet den resultierenden
+Raumklang auf das Audiosignal an. So lassen sich unterschiedliche Räume und
+Aufnahme- beziehungsweise Lautsprecheranordnungen direkt in einer DAW oder mit der
+Standalone-App ausprobieren, ohne dafür einen realen Raum aufzubauen.
+
+Die Berechnung nutzt Vulkan-Raytracing auf der GPU. Eigene Raumgeometrien können als
+OBJ- oder FBX-Datei importiert werden; alternativ stehen drei Beispielräume zur Verfügung.
+
+**Entwicklung:** Das Projekt wurde mit Unterstützung von **ChatGPT Luna 6** entwickelt.
+
 ## Voraussetzungen
 
 - CMake >= 3.25
@@ -28,7 +40,9 @@ Die fertigen Artefakte liegen danach unter:
 
 ## Build (Linux)
 
-Der GitHub-Release-Workflow baut zusätzlich ein Linux-VST3 und eine Standalone-App.
+Der Linux-Build und die Linux-Pakete sind derzeit **nicht auf Linux getestet**.
+Der Workflow ist eingerichtet; der Linux-Build, das Debian-Installationspaket und die
+Laufzeit auf einem Linux-System müssen noch praktisch verifiziert werden.
 Lokal kann mit `cmake --preset linux-release` konfiguriert und mit
 `cmake --build --preset linux-release --parallel 2` gebaut werden. Benötigt werden
 Vulkan SDK beziehungsweise `libvulkan-dev` und `glslc` sowie die JUCE-Entwicklungspakete
@@ -86,6 +100,8 @@ baut das Skript sie automatisch. Mit `test.bat --build` wird vor dem Start immer
 ## GitHub Release erstellen
 
 Unter **Actions → Build and publish release → Run workflow** den Release-Tag (zum Beispiel
-`v0.2.0`) und die Release Notes als Markdown eingeben. Der Workflow baut VST3 und Standalone
-für Windows und Linux und veröffentlicht beide Plattformpakete als GitHub Release.
+`v0.2.0`), die Release Notes als Markdown und optional **Publish this release as a
+pre-release** auswählen. Der Workflow baut VST3 und Standalone für Windows und Linux und
+veröffentlicht zusätzlich einen Windows-Installer (`.exe`) sowie ein Linux-Debian-Paket
+(`.deb`) als Release-Artefakte. Die ZIP- und TAR.GZ-Pakete bleiben ebenfalls verfügbar.
 
