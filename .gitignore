@@ -1,0 +1,40 @@
+# Build artifacts
+build/
+out/
+cmake-build-*/
+_deps/
+
+# IDEs & Editors
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.sln
+*.vcxproj*
+*.filters
+
+# Compiled binaries & libraries
+*.exe
+*.dll
+*.vst3/
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.obj
+*.o
+*.a
+*.so
+*.dylib
+
+# CUDA
+*.ptx
+*.cubin
+*.fatbin
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+

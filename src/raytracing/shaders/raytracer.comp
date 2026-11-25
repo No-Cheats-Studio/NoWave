@@ -1,0 +1,315 @@
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct BVHNode {
+    vec4 minLeft;
+    vec4 maxRight;
+    int triIndex;
+    int pad0, pad1, pad2;
+};
+
+struct GPUTriangle {
+    vec4 v0;
+    vec4 v1;
+    vec4 v2;
+    vec4 n;
+    int materialIndex;
+    int pad0, pad1, pad2;
+};
+
+struct GPUMaterial {
+    vec4 absorption;
+};
+
+struct RayTap {
+    int sampleIndex;
+    int sourceIndex;
+    int receiverIndex;
+    int pad0;
+    float gainLow;
+    float gainMid;
+    float gainHigh;
+    float pad1;
+};
+
+layout(set = 0, binding = 0, std430) readonly buffer BVHBuf {
+    BVHNode nodes[];
+};
+layout(set = 0, binding = 1, std430) readonly buffer TriBuf {
+    GPUTriangle tris[];
+};
+layout(set = 0, binding = 2, std430) readonly buffer MaterialBuf {
+    GPUMaterial materials[];
+};
+layout(set = 0, binding = 3, std430) buffer TapBuf {
+    RayTap taps[];
+};
+layout(set = 0, binding = 4, std430) buffer CounterBuf {
+    uint tapCount;
+};
+layout(set = 0, binding = 5, std430) readonly buffer ParametersBuf {
+    vec4 sourcePositions[2];
+    vec4 sourceDirections[2];
+    vec4 receiverPositions[2];
+    vec4 receiverDirections[2];
+    ivec4 configuration;
+    ivec4 patterns;
+    vec4 physics;
+    ivec4 limits;
+} simulation;
+
+bool slab(float origin, float direction, float lower, float upper,
+          inout float nearT, inout float farT) {
+    if (abs(direction) < 1e-8)
+        return origin >= lower && origin <= upper;
+
+    float t0 = (lower - origin) / direction;
+    float t1 = (upper - origin) / direction;
+    nearT = max(nearT, min(t0, t1));
+    farT = min(farT, max(t0, t1));
+    return farT >= max(nearT, 0.0);
+}
+
+bool rayAABB(vec3 ro, vec3 rd, vec3 bmin, vec3 bmax, out float nearT) {
+    nearT = 0.0;
+    float farT = 1e30;
+    return slab(ro.x, rd.x, bmin.x, bmax.x, nearT, farT) &&
+           slab(ro.y, rd.y, bmin.y, bmax.y, nearT, farT) &&
+           slab(ro.z, rd.z, bmin.z, bmax.z, nearT, farT);
+}
+
+bool rayTriangle(vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, out float t) {
+    const float EPS = 1e-7;
+    vec3 e1 = v1 - v0;
+    vec3 e2 = v2 - v0;
+    vec3 h = cross(rd, e2);
+    float a = dot(e1, h);
+    if (abs(a) < EPS)
+        return false;
+    float f = 1.0 / a;
+    vec3 s = ro - v0;
+    float u = f * dot(s, h);
+    if (u < 0.0 || u > 1.0)
+        return false;
+    vec3 q = cross(s, e1);
+    float v = f * dot(rd, q);
+    if (v < 0.0 || u + v > 1.0)
+        return false;
+    t = f * dot(e2, q);
+    return t > EPS;
+}
+
+bool raySphere(vec3 ro, vec3 rd, vec3 center, float radius, out float t) {
+    vec3 oc = ro - center;
+    float b = dot(oc, rd);
+    float c = dot(oc, oc) - radius * radius;
+    float discriminant = b * b - c;
+    if (discriminant < 0.0)
+        return false;
+    float root = sqrt(discriminant);
+    t = -b - root;
+    if (t < 1e-5)
+        t = -b + root;
+    return t >= 0.0;
+}
+
+bool traverseBVH(vec3 ro, vec3 rd, float maxDistance,
+                 out float hitT, out int hitTri, out vec3 hitNormal) {
+    hitT = maxDistance;
+    hitTri = -1;
+    hitNormal = vec3(0.0);
+
+    int stack[32];
+    int stackSize = 1;
+    stack[0] = 0;
+    while (stackSize > 0) {
+        int nodeIndex = stack[--stackSize];
+        BVHNode node = nodes[nodeIndex];
+        float nodeNear;
+        if (!rayAABB(ro, rd, node.minLeft.xyz, node.maxRight.xyz, nodeNear) ||
+            nodeNear >= hitT)
+            continue;
+
+        if (node.triIndex >= 0) {
+            GPUTriangle tri = tris[node.triIndex];
+            float t;
+            if (rayTriangle(ro, rd, tri.v0.xyz, tri.v1.xyz, tri.v2.xyz, t) &&
+                t < hitT) {
+                hitT = t;
+                hitTri = node.triIndex;
+                hitNormal = tri.n.xyz;
+            }
+        } else {
+            int left = floatBitsToInt(node.minLeft.w);
+            int right = floatBitsToInt(node.maxRight.w);
+            if (left >= 0 && stackSize < 32)
+                stack[stackSize++] = left;
+            if (right >= 0 && stackSize < 32)
+                stack[stackSize++] = right;
+        }
+    }
+    return hitTri >= 0;
+}
+
+vec3 fibonacciDirection(int index, int count) {
+    float y = 1.0 - 2.0 * (float(index) + 0.5) / float(count);
+    float radius = sqrt(max(0.0, 1.0 - y * y));
+    float angle = 2.39996323 * float(index);
+    return vec3(cos(angle) * radius, y, sin(angle) * radius);
+}
+
+uint hash(uint value) {
+    value ^= value >> 16;
+    value *= 0x7feb352du;
+    value ^= value >> 15;
+    value *= 0x846ca68bu;
+    value ^= value >> 16;
+    return value;
+}
+
+float random01(inout uint state) {
+    state = hash(state);
+    return float(state) * (1.0 / 4294967295.0);
+}
+
+vec3 randomHemisphere(vec3 normal, inout uint state) {
+    float z = random01(state);
+    float angle = 6.28318530718 * random01(state);
+    float radius = sqrt(max(0.0, 1.0 - z * z));
+    vec3 helper = abs(normal.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    vec3 tangent = normalize(cross(helper, normal));
+    vec3 bitangent = cross(normal, tangent);
+    return normalize(tangent * (radius * cos(angle)) +
+                     bitangent * (radius * sin(angle)) + normal * z);
+}
+
+float patternGain(int pattern, float forwardDot) {
+    float cosine = clamp(forwardDot, -1.0, 1.0);
+    if (pattern == 0)
+        return 1.0;
+    if (pattern == 1)
+        return max(0.0, 0.5 * (1.0 + cosine));
+    if (pattern == 2)
+        return max(0.0, 0.37 + 0.63 * cosine);
+    return abs(cosine);
+}
+
+void addTap(float pathDistance, float remainingDistance,
+            float pathGainLow, float pathGainMid, float pathGainHigh,
+            int sourceIndex, int receiverIndex, float receiverGain) {
+    float totalDistance = pathDistance + remainingDistance;
+    int sampleIndex = int(totalDistance / simulation.physics.y * simulation.physics.z);
+    if (sampleIndex < 0 || sampleIndex >= simulation.limits.x)
+        return;
+
+    float gain = receiverGain /
+                 max(totalDistance, 0.1) /
+                 float(simulation.limits.z);
+    uint index = atomicAdd(tapCount, 1u);
+    if (index < uint(simulation.limits.y)) {
+        taps[index].sampleIndex = sampleIndex;
+        taps[index].sourceIndex = sourceIndex;
+        taps[index].receiverIndex = receiverIndex;
+        taps[index].gainLow = pathGainLow * gain;
+        taps[index].gainMid = pathGainMid * gain;
+        taps[index].gainHigh = pathGainHigh * gain;
+        taps[index].pad0 = 0;
+        taps[index].pad1 = 0.0;
+    }
+}
+
+void main() {
+    int workIndex = int(gl_GlobalInvocationID.x);
+    int numRays = simulation.limits.z;
+    int totalWork = numRays * simulation.configuration.x;
+    if (workIndex >= totalWork)
+        return;
+
+    int sourceIndex = workIndex / numRays;
+    int rayIndex = workIndex - sourceIndex * numRays;
+    vec3 origin = simulation.sourcePositions[sourceIndex].xyz;
+    vec3 direction = fibonacciDirection(rayIndex, numRays);
+    float sourceGain = patternGain(simulation.patterns.x,
+                                   dot(simulation.sourceDirections[sourceIndex].xyz,
+                                       direction));
+    float pathDistance = 0.0;
+    float pathGainLow = sourceGain;
+    float pathGainMid = sourceGain;
+    float pathGainHigh = sourceGain;
+    uint randomState = uint(workIndex + 1) * 0x9e3779b9u;
+
+    for (int bounce = 0; bounce <= simulation.limits.w; ++bounce) {
+        for (int receiverIndex = 0;
+             receiverIndex < simulation.configuration.y;
+             ++receiverIndex) {
+            vec3 receiver = simulation.receiverPositions[receiverIndex].xyz;
+            vec3 toReceiver = receiver - origin;
+            float centerDistance = length(toReceiver);
+            vec3 receiverDirection = centerDistance > 1e-6
+                                     ? toReceiver / centerDistance
+                                 : direction;
+            float sphereDistance = 0.0;
+            bool intersectsReceiver = centerDistance <= simulation.physics.x;
+            if (!intersectsReceiver) {
+                intersectsReceiver = raySphere(origin, receiverDirection, receiver,
+                                               simulation.physics.x, sphereDistance);
+            }
+
+            if (intersectsReceiver) {
+                float obstructionT;
+                int obstructionTri;
+                vec3 obstructionNormal;
+                bool blocked = traverseBVH(origin, receiverDirection,
+                                           max(0.0, sphereDistance - 1e-4),
+                                           obstructionT, obstructionTri, obstructionNormal);
+                if (!blocked) {
+                    float receiverGain = patternGain(
+                        simulation.patterns[receiverIndex + 1],
+                        dot(simulation.receiverDirections[receiverIndex].xyz,
+                            -receiverDirection));
+                    float directSourceGain = patternGain(
+                        simulation.patterns.x,
+                        dot(simulation.sourceDirections[sourceIndex].xyz,
+                            receiverDirection));
+                    addTap(pathDistance, sphereDistance,
+                           bounce == 0 ? directSourceGain : pathGainLow,
+                           bounce == 0 ? directSourceGain : pathGainMid,
+                           bounce == 0 ? directSourceGain : pathGainHigh,
+                           sourceIndex, receiverIndex, receiverGain);
+                }
+            }
+        }
+
+        if (bounce == simulation.limits.w || (bounce == 0 && sourceGain <= 0.0))
+            break;
+
+        float hitT;
+        int hitTri;
+        vec3 hitNormal;
+        if (!traverseBVH(origin, direction, 1e30, hitT, hitTri, hitNormal))
+            break;
+
+        pathDistance += hitT;
+        GPUTriangle tri = tris[hitTri];
+        GPUMaterial material = materials[tri.materialIndex];
+        pathGainLow *= clamp(1.0 - material.absorption.x, 0.0, 1.0);
+        pathGainMid *= clamp(1.0 - material.absorption.y, 0.0, 1.0);
+        pathGainHigh *= clamp(1.0 - material.absorption.z, 0.0, 1.0);
+        if (max(pathGainLow, max(pathGainMid, pathGainHigh)) < 1e-5)
+            break;
+
+        vec3 normal = dot(hitNormal, direction) < 0.0 ? hitNormal : -hitNormal;
+        vec3 reflected = normalize(reflect(direction, normal));
+        float scattering = clamp(material.absorption.w, 0.0, 1.0);
+        if (scattering > 0.0) {
+            vec3 diffuse = randomHemisphere(normal, randomState);
+            if (dot(diffuse, reflected) < 0.0)
+                diffuse = -diffuse;
+            direction = normalize(mix(reflected, diffuse, scattering));
+        } else {
+            direction = reflected;
+        }
+        origin += direction * 1e-4 + normal * 1e-4;
+    }
+}
