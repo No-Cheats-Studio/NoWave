@@ -13,7 +13,9 @@ NoWaveAudioProcessorEditor::NoWaveAudioProcessorEditor(NoWaveAudioProcessor& pro
           processor.getParameterPointers(),
           [this]() { return audioProcessor.getRayPathsSnapshot(); },
           [this]() { showStartScreen(); }),
-      bottomControlBar(processor.getAPVTS(), [this] { resized(); })
+      bottomControlBar(processor.getAPVTS(), [this] { resized(); },
+                       processor.getPreferredGpu(),
+                       [this](const juce::String& gpu) { audioProcessor.setPreferredGpu(gpu); })
 {
     addAndMakeVisible(startScreen);
     addChildComponent(viewport3D);

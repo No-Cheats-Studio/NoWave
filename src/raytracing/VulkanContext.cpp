@@ -18,13 +18,50 @@ VulkanContext::~VulkanContext()
         vkDestroyInstance(instance, nullptr);
 }
 
-bool VulkanContext::initialize() noexcept
+std::vector<std::string> VulkanContext::listComputeDevices()
+{
+    std::vector<std::string> names;
+    VulkanContext probe;
+    if (!probe.createInstance())
+        return names;
+
+    uint32_t deviceCount = 0;
+    if (vkEnumeratePhysicalDevices(probe.instance, &deviceCount, nullptr) != VK_SUCCESS ||
+        deviceCount == 0)
+        return names;
+
+    std::vector<VkPhysicalDevice> devices(deviceCount);
+    if (vkEnumeratePhysicalDevices(probe.instance, &deviceCount, devices.data()) != VK_SUCCESS)
+        return names;
+
+    for (const auto candidate : devices)
+    {
+        uint32_t familyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(candidate, &familyCount, nullptr);
+        std::vector<VkQueueFamilyProperties> families(familyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(candidate, &familyCount, families.data());
+
+        const bool hasCompute = std::any_of(families.begin(), families.end(), [](const auto& f)
+        {
+            return f.queueCount > 0 && (f.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
+        });
+        if (!hasCompute)
+            continue;
+
+        VkPhysicalDeviceProperties properties {};
+        vkGetPhysicalDeviceProperties(candidate, &properties);
+        names.emplace_back(properties.deviceName);
+    }
+    return names;
+}
+
+bool VulkanContext::initialize(const std::string& preferredDevice) noexcept
 {
     if (isValid())
         return true;
 
     return createInstance() &&
-           selectPhysDevice() &&
+           selectPhysDevice(preferredDevice) &&
            createLogicalDevice() &&
            createCommandPool();
 }
@@ -49,7 +86,7 @@ bool VulkanContext::createInstance() noexcept
     return true;
 }
 
-bool VulkanContext::selectPhysDevice() noexcept
+bool VulkanContext::selectPhysDevice(const std::string& preferredDevice) noexcept
 {
     uint32_t deviceCount = 0;
     if (vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr) != VK_SUCCESS ||
@@ -83,6 +120,8 @@ bool VulkanContext::selectPhysDevice() noexcept
             VkPhysicalDeviceProperties properties {};
             vkGetPhysicalDeviceProperties(candidate, &properties);
             int score = 1;
+            if (!preferredDevice.empty() && preferredDevice == properties.deviceName)
+                score += 100;
             if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
                 score += 2;
             if ((families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0)
@@ -93,6 +132,7 @@ bool VulkanContext::selectPhysDevice() noexcept
                 bestScore = score;
                 physDevice = candidate;
                 computeQFI = i;
+                deviceName = properties.deviceName;
             }
         }
     }

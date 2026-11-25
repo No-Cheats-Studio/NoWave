@@ -1,5 +1,6 @@
 ﻿#include "ui/BottomControlBar.h"
 #include "parameters/ParameterLayout.h"
+#include "raytracing/VulkanContext.h"
 #include "ui/Palette.h"
 
 #include <algorithm>
@@ -126,8 +127,11 @@ void placeChoice(juce::Rectangle<int>& row, int width, juce::Label& label, juce:
 } // namespace
 
 BottomControlBar::BottomControlBar(juce::AudioProcessorValueTreeState& apvts,
-                                   std::function<void()> layoutChanged)
-    : onLayoutChanged(std::move(layoutChanged))
+                                   std::function<void()> layoutChanged,
+                                   juce::String initialGpu,
+                                   std::function<void(const juce::String&)> gpuSelected)
+    : onLayoutChanged(std::move(layoutChanged)),
+      onGpuSelected(std::move(gpuSelected))
 {
     configureGroupCaption(sourceGroupLabel, "SOURCE", *this);
     configureGroupCaption(listenerGroupLabel, "LISTENER", *this);
@@ -255,6 +259,28 @@ BottomControlBar::BottomControlBar(juce::AudioProcessorValueTreeState& apvts,
     rayBouncesAtt =
         std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
             apvts, ParamIDs::rayBounces, rayBouncesSlider);
+
+    configureChoice(gpuBox, gpuLabel, "GPU",
+                    "Graphics card used for the physical sound simulation. "
+                    "Automatic picks the fastest available GPU.",
+                    *this);
+    gpuBox.addItem("Automatic", 1);
+    int gpuSelection = 1;
+    int gpuItemId = 2;
+    for (const auto& name : VulkanContext::listComputeDevices())
+    {
+        gpuBox.addItem(juce::String(name), gpuItemId);
+        if (initialGpu == juce::String(name))
+            gpuSelection = gpuItemId;
+        ++gpuItemId;
+    }
+    gpuBox.setSelectedId(gpuSelection, juce::dontSendNotification);
+    gpuBox.setExplicitFocusOrder(21);
+    gpuBox.onChange = [this]
+    {
+        if (onGpuSelected)
+            onGpuSelected(gpuBox.getSelectedId() == 1 ? juce::String() : gpuBox.getText());
+    };
 
     initObjectPanel(sourcePanel,
                     apvts,
@@ -624,7 +650,7 @@ void BottomControlBar::resized()
 
     const int patternCells = microphonePatternBox.isVisible() ? 1
                            : (leftPatternBox.isVisible() ? 2 : 0);
-    const int totalCells = 1 + (1 + patternCells) + 2 + 4;
+    const int totalCells = 1 + (1 + patternCells) + 4 + 4;
     const int cellWidth = juce::jmax(1, topRow.getWidth() / totalCells);
 
     const auto placeGroup = [&topRow, cellWidth](int cells, juce::Label& caption)
@@ -646,9 +672,10 @@ void BottomControlBar::resized()
     if (rightPatternBox.isVisible())
         placeChoice(listenerRow, cellWidth, rightPatternLabel, rightPatternBox);
 
-    auto raytracingRow = placeGroup(2, raytracingGroupLabel);
+    auto raytracingRow = placeGroup(4, raytracingGroupLabel);
     placeChoice(raytracingRow, cellWidth, rayDensityLabel, rayDensitySlider);
     placeChoice(raytracingRow, cellWidth, rayBouncesLabel, rayBouncesSlider);
+    placeChoice(raytracingRow, cellWidth * 2, gpuLabel, gpuBox);
 
     auto soundViewRow = placeGroup(4, soundViewGroupLabel);
     placeChoice(soundViewRow, cellWidth, soundViewLabel, soundViewBox);

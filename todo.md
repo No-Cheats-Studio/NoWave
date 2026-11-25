@@ -50,10 +50,11 @@ Goal: Every sound is calculated fully physically on the GPU. There is no CPU rep
 
 - [x] Remove CPU direct-sound fallback; the IR is always generated on the GPU
 - [x] Clear status instead of silent fallback (without GPU or scene: no IR, signal stays dry, status retrievable)
-- [~] Verify full physics in the compute shader: runtime, 1/r attenuation, absorption per band and reflection, scattering, source and receiver directivity, receiver hits
+- [x] Verify full physics in the compute shader (code review: all terms present; numeric validation see below): runtime, 1/r attenuation, absorption per band and reflection, scattering, source and receiver directivity, receiver hits
+- [x] Manual GPU selection (dropdown "GPU" in Raytracing group, "Automatic" = best GPU; choice saved in plugin state, context is re-initialised live)
 - [x] Export energy and reflection index per segment for visualization
-- [ ] Automated check of C++â†”GLSL layouts (sizes and offsets)
-- [ ] Validation against reference values (reverberation time per Sabine/Eyring)
+- [x] Automated check of C++â†”GLSL layouts (sizes and offsets): `static_assert` in `tests/ReverbTimeTest.cpp`
+- [x] Validation against reference values (reverberation time per Sabine/Eyring): `NoWaveTests` (ctest `ReverbTime`), shoebox, 3 absorption values, deviation from Eyring <= 20 % (measured -3..+7 %)
 
 ## 5. Product Maturity & Quality
 
@@ -79,3 +80,5 @@ Goal: Every sound is calculated fully physically on the GPU. There is no CPU rep
 |---|---|
 | 2026-11-25 | Initial version of the product to-dos |
 | 2026-11-25 | Section 2: sound cloud, dB legend, direction heatmap, arrival filter; `show_ray_paths` replaced by `sound_view`, `sound_view_band`, `sound_view_arrival` |
+| 2026-11-25 | Section 4: manual GPU selection (VulkanContext::listComputeDevices, RaytracingWorker::setPreferredGpu); shader physics reviewed |
+| 2026-11-25 | Section 4: NoWaveTests validates RT60 on the GPU against Eyring; layout static_asserts |

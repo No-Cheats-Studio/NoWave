@@ -50,6 +50,11 @@ public:
     nowave::IRUpdateQueue& getIRQueue() noexcept { return reverbEngine.getIRQueue(); }
     std::shared_ptr<const std::vector<nowave::RaySegment>> getRayPathsSnapshot() const;
 
+    /** Empty name = automatic GPU choice. Persisted in the plugin state. */
+    void setPreferredGpu(const juce::String& deviceName);
+    juce::String getPreferredGpu() const;
+    juce::String getActiveGpuName() const;
+
     void setRoomMesh(std::shared_ptr<const nowave::RoomMesh> mesh,
                      const juce::String& sourceType,
                      const juce::String& identifier);

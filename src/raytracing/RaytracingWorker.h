@@ -14,6 +14,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -42,6 +43,10 @@ public:
 
     void start(double sampleRate);
     void stop();
+
+    /** Empty = automatic. Takes effect immediately by re-initialising the GPU context. */
+    void setPreferredGpu(const std::string& deviceName);
+    std::string getActiveGpuName() const;
 
     bool isVulkanAvailable() const noexcept;
     SimulationStatus getStatus() const noexcept;
@@ -83,6 +88,11 @@ private:
     static constexpr float kSpeedOfSound           = 343.0f; // m/s
     static constexpr float kListenerRadius         = 0.2f;   // metres
     static constexpr float kRotationChangeDeltaDeg = 1.0f;
+
+    mutable std::mutex gpuMutex;
+    std::string preferredGpu;
+    std::string activeGpu;
+    std::atomic<int> gpuGeneration { 0 };
 
     mutable std::mutex rayPathsMutex;
     std::shared_ptr<const std::vector<RaySegment>> rayPathsSnapshot;

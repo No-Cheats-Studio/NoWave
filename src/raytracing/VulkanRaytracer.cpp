@@ -38,12 +38,12 @@ VulkanRaytracer::~VulkanRaytracer()
     }
 }
 
-bool VulkanRaytracer::initialize()
+bool VulkanRaytracer::initialize(const std::string& preferredDevice)
 {
     if (isAvailable())
         return true;
 
-    if (!context.initialize())
+    if (!context.initialize(preferredDevice))
     {
         lastError = context.getLastError();
         return false;

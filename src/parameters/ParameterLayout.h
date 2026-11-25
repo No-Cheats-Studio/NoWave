@@ -73,6 +73,7 @@ namespace StateProps
 {
 inline constexpr const char* roomSourceType = "roomSourceType";
 inline constexpr const char* roomIdentifier = "roomIdentifier";
+inline constexpr const char* gpuDevice = "gpuDevice";
 } // namespace StateProps
 
 struct ParameterPointers

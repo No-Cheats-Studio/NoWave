@@ -20,7 +20,8 @@ public:
     VulkanRaytracer(const VulkanRaytracer&) = delete;
     VulkanRaytracer& operator=(const VulkanRaytracer&) = delete;
 
-    bool initialize();
+    bool initialize(const std::string& preferredDevice = {});
+    const std::string& getDeviceName() const noexcept { return context.getDeviceName(); }
     bool isAvailable() const noexcept { return context.isValid() && pipeline != VK_NULL_HANDLE; }
     bool setScene(const RoomMesh& mesh);
     bool trace(const RaytraceParameters& parameters,

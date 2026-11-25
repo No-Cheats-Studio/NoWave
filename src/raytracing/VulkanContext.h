@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 #include <vulkan/vulkan.h>
 
 namespace nowave
@@ -25,7 +26,11 @@ public:
     VulkanContext(const VulkanContext&)            = delete;
     VulkanContext& operator=(const VulkanContext&) = delete;
 
-    bool initialize() noexcept;
+    /** Names of all Vulkan devices with a compute queue (uses a temporary instance). */
+    static std::vector<std::string> listComputeDevices();
+
+    /** preferredDevice: exact device name; empty or unknown name = automatic choice. */
+    bool initialize(const std::string& preferredDevice = {}) noexcept;
     bool isValid() const noexcept { return device != VK_NULL_HANDLE; }
 
     VkInstance       getInstance()    const noexcept { return instance; }
@@ -38,10 +43,11 @@ public:
     uint32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags props) const noexcept;
 
     const std::string& getLastError() const noexcept { return lastError; }
+    const std::string& getDeviceName() const noexcept { return deviceName; }
 
 private:
     bool createInstance()     noexcept;
-    bool selectPhysDevice()   noexcept;
+    bool selectPhysDevice(const std::string& preferredDevice) noexcept;
     bool createLogicalDevice() noexcept;
     bool createCommandPool()  noexcept;
 
@@ -53,6 +59,7 @@ private:
     uint32_t         computeQFI   { UINT32_MAX };
 
     std::string lastError;
+    std::string deviceName;
 };
 } // namespace nowave
 

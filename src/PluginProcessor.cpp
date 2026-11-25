@@ -147,9 +147,29 @@ void NoWaveAudioProcessor::setStateInformation(const void* data, int sizeInBytes
         if (xml->hasTagName(apvts.state.getType()))
         {
             apvts.replaceState(juce::ValueTree::fromXml(*xml));
+            if (raytracingWorker != nullptr)
+                raytracingWorker->setPreferredGpu(getPreferredGpu().toStdString());
             restoreRoomFromState();
         }
     }
+}
+
+void NoWaveAudioProcessor::setPreferredGpu(const juce::String& deviceName)
+{
+    apvts.state.setProperty(nowave::StateProps::gpuDevice, deviceName, nullptr);
+    if (raytracingWorker != nullptr)
+        raytracingWorker->setPreferredGpu(deviceName.toStdString());
+}
+
+juce::String NoWaveAudioProcessor::getPreferredGpu() const
+{
+    return apvts.state.getProperty(nowave::StateProps::gpuDevice).toString();
+}
+
+juce::String NoWaveAudioProcessor::getActiveGpuName() const
+{
+    return raytracingWorker != nullptr ? juce::String(raytracingWorker->getActiveGpuName())
+                                       : juce::String();
 }
 
 void NoWaveAudioProcessor::setRoomMesh(std::shared_ptr<const nowave::RoomMesh> mesh,

@@ -75,6 +75,7 @@ void RaytracingWorker::start(double rate)
     stop();
     sampleRate = rate > 0.0 ? rate : 44100.0;
     lastMesh.reset();
+    gpuGeneration.fetch_add(1, std::memory_order_acq_rel);
     publishRayPaths({});
     vulkanAvailable.store(false, std::memory_order_release);
     status.store(SimulationStatus::NoGpu, std::memory_order_release);
@@ -92,6 +93,23 @@ void RaytracingWorker::stop()
 SimulationStatus RaytracingWorker::getStatus() const noexcept
 {
     return status.load(std::memory_order_acquire);
+}
+
+void RaytracingWorker::setPreferredGpu(const std::string& deviceName)
+{
+    {
+        const std::lock_guard<std::mutex> lock(gpuMutex);
+        if (preferredGpu == deviceName)
+            return;
+        preferredGpu = deviceName;
+    }
+    gpuGeneration.fetch_add(1, std::memory_order_acq_rel);
+}
+
+std::string RaytracingWorker::getActiveGpuName() const
+{
+    const std::lock_guard<std::mutex> lock(gpuMutex);
+    return activeGpu;
 }
 
 bool RaytracingWorker::isVulkanAvailable() const noexcept
@@ -326,24 +344,45 @@ RaytraceParameters RaytracingWorker::makeRaytraceParameters(int maxIRSamples) co
 
 void RaytracingWorker::threadFunc()
 {
-    raytracer = std::make_unique<VulkanRaytracer>();
-    const bool gpuReady = raytracer->initialize();
-    vulkanAvailable.store(gpuReady, std::memory_order_release);
-    if (!gpuReady)
-    {
-        status.store(SimulationStatus::NoGpu, std::memory_order_release);
-        juce::Logger::writeToLog("NoWave: Vulkan raytracing unavailable; no impulse response will be produced. " +
-                                 juce::String(raytracer->getLastError()));
-    }
-
+    bool gpuReady = false;
+    int appliedGeneration = -1;
     bool hasPublishedIR = false;
     bool sceneReady = false;
     while (running.load(std::memory_order_acquire))
     {
+        const bool gpuChanged = appliedGeneration != gpuGeneration.load(std::memory_order_acquire);
+        if (gpuChanged)
+        {
+            appliedGeneration = gpuGeneration.load(std::memory_order_acquire);
+            std::string wanted;
+            {
+                const std::lock_guard<std::mutex> lock(gpuMutex);
+                wanted = preferredGpu;
+            }
+            raytracer.reset();
+            raytracer = std::make_unique<VulkanRaytracer>();
+            gpuReady = raytracer->initialize(wanted);
+            sceneReady = false;
+            lastMesh.reset();
+            vulkanAvailable.store(gpuReady, std::memory_order_release);
+            {
+                const std::lock_guard<std::mutex> lock(gpuMutex);
+                activeGpu = gpuReady ? raytracer->getDeviceName() : std::string();
+            }
+            if (gpuReady)
+                juce::Logger::writeToLog("NoWave: Using GPU " + juce::String(raytracer->getDeviceName()));
+            else
+            {
+                status.store(SimulationStatus::NoGpu, std::memory_order_release);
+                juce::Logger::writeToLog("NoWave: Vulkan raytracing unavailable; no impulse response will be produced. " +
+                                         juce::String(raytracer->getLastError()));
+            }
+        }
+
         const auto mesh = meshProvider ? meshProvider() : nullptr;
-        const bool meshChanged = mesh != lastMesh;
+        const bool meshChanged = mesh != lastMesh || (gpuChanged && mesh != nullptr);
         const bool parametersChanged = simulationParametersChanged();
-        if (meshChanged || parametersChanged)
+        if (meshChanged || parametersChanged || gpuChanged)
         {
             publishRayPaths({});
             const bool meshValid = mesh != nullptr && mesh->isValid();

@@ -183,3 +183,26 @@ target_link_libraries(NoWave
         juce::juce_recommended_warning_flags
 )
 
+
+# Validation tests (need a Vulkan GPU; exit code 77 = skipped)
+enable_testing()
+add_executable(NoWaveTests
+    tests/ReverbTimeTest.cpp
+    src/scene/RoomMesh.cpp
+    src/raytracing/BVHBuilder.cpp
+    src/raytracing/VulkanContext.cpp
+    src/raytracing/VulkanRaytracer.cpp
+)
+add_dependencies(NoWaveTests NoWaveRaytracerShader)
+target_include_directories(NoWaveTests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
+)
+target_link_libraries(NoWaveTests PRIVATE
+    juce::juce_audio_basics
+    juce::juce_recommended_config_flags
+    glm::glm
+    Vulkan::Vulkan
+)
+add_test(NAME ReverbTime COMMAND NoWaveTests)
+set_tests_properties(ReverbTime PROPERTIES SKIP_RETURN_CODE 77)

@@ -11,7 +11,9 @@ class BottomControlBar final : public juce::Component
 {
 public:
     explicit BottomControlBar(juce::AudioProcessorValueTreeState& apvts,
-                              std::function<void()> onLayoutChanged);
+                              std::function<void()> onLayoutChanged,
+                              juce::String initialGpu,
+                              std::function<void(const juce::String&)> onGpuSelected);
     ~BottomControlBar() override = default;
 
     void paint(juce::Graphics& g) override;
@@ -122,6 +124,9 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> soundViewAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> soundViewBandAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> soundViewArrivalAtt;
+    juce::Label gpuLabel;
+    juce::ComboBox gpuBox;
+    std::function<void(const juce::String&)> onGpuSelected;
     juce::Slider rayDensitySlider, rayBouncesSlider;
     juce::Label rayDensityLabel, rayBouncesLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> outputTypeAtt;
